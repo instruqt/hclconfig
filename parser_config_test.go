@@ -3,7 +3,7 @@ package hclconfig
 import (
 	"testing"
 
-	"github.com/jumppad-labs/hclconfig/resources"
+	"github.com/instruqt/hclconfig/resources"
 	"github.com/stretchr/testify/require"
 )
 
