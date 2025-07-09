@@ -3,7 +3,7 @@ package main
 import (
 	"fmt"
 
-	"github.com/instruqt/hclconfig/types"
+	"go.instruqt.com/hclconfig/types"
 )
 
 // Timeouts is not a resource but a block and does not need `ResourceInfo` embedded or the `Resource`

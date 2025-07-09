@@ -5,9 +5,9 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/instruqt/hclconfig/resources"
-	"github.com/instruqt/hclconfig/test_fixtures/structs"
-	"github.com/instruqt/hclconfig/types"
+	"go.instruqt.com/hclconfig/resources"
+	"go.instruqt.com/hclconfig/test_fixtures/structs"
+	"go.instruqt.com/hclconfig/types"
 	"github.com/stretchr/testify/require"
 )
 

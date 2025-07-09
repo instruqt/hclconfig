@@ -6,7 +6,7 @@ import (
 	"regexp"
 	"strings"
 
-	"github.com/instruqt/hclconfig/types"
+	"go.instruqt.com/hclconfig/types"
 )
 
 // FQRN is the fully qualified resource name

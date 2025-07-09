@@ -1,6 +1,6 @@
 package resources
 
-import "github.com/instruqt/hclconfig/types"
+import "go.instruqt.com/hclconfig/types"
 
 // TypeModule is the resource string for a Module resource
 const TypeRoot = "root"

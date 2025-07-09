@@ -1,6 +1,6 @@
 package resources
 
-import "github.com/instruqt/hclconfig/types"
+import "go.instruqt.com/hclconfig/types"
 
 // DefaultResources is a collection of the default config resources
 func DefaultResources() types.RegisteredTypes {

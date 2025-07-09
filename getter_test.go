@@ -100,7 +100,7 @@ func TestGetterFunctionalTest(t *testing.T) {
 	}
 
 	g := NewGoGetter()
-	download, err := g.Get("github.com/instruqt/hclconfig?ref=7271da1cd14778d3762304954d7061cc753da204", dest, false)
+	download, err := g.Get("go.instruqt.com/hclconfig?ref=7271da1cd14778d3762304954d7061cc753da204", dest, false)
 	require.NoError(t, err)
 
 	require.DirExists(t, download)

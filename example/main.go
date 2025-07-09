@@ -6,9 +6,9 @@ import (
 	"math/rand"
 	"os"
 
-	"github.com/instruqt/hclconfig"
-	"github.com/instruqt/hclconfig/resources"
-	"github.com/instruqt/hclconfig/types"
+	"go.instruqt.com/hclconfig"
+	"go.instruqt.com/hclconfig/resources"
+	"go.instruqt.com/hclconfig/types"
 )
 
 func main() {

@@ -1,7 +1,7 @@
 package resources
 
 import (
-	"github.com/instruqt/hclconfig/types"
+	"go.instruqt.com/hclconfig/types"
 	"github.com/zclconf/go-cty/cty"
 )
 

@@ -1,4 +1,4 @@
-module github.com/instruqt/hclconfig
+module go.instruqt.com/hclconfig
 
 go 1.24.3
 

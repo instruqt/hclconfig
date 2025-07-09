@@ -1,6 +1,6 @@
 package embedded
 
-import "github.com/instruqt/hclconfig/types"
+import "go.instruqt.com/hclconfig/types"
 
 type ContainerBase struct {
 	// embedded type holding name, etc

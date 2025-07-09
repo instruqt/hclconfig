@@ -8,7 +8,7 @@ import (
 	"os"
 	"sort"
 
-	"github.com/instruqt/hclconfig/types"
+	"go.instruqt.com/hclconfig/types"
 	"github.com/zclconf/go-cty/cty"
 	"github.com/zclconf/go-cty/cty/convert"
 )

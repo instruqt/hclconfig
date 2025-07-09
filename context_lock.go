@@ -4,7 +4,7 @@ import (
 	"sync"
 
 	"github.com/hashicorp/hcl/v2"
-	"github.com/instruqt/hclconfig/types"
+	"go.instruqt.com/hclconfig/types"
 )
 
 var locks = sync.Map{}

@@ -1,6 +1,6 @@
 package resources
 
-import "github.com/instruqt/hclconfig/types"
+import "go.instruqt.com/hclconfig/types"
 
 const TypeVariable = "variable"
 
