@@ -3,7 +3,7 @@ package resources
 import (
 	"testing"
 
-	"github.com/instruqt/hclconfig/types"
+	"go.instruqt.com/hclconfig/types"
 	"github.com/stretchr/testify/require"
 )
 

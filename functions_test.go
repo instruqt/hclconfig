@@ -6,7 +6,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/instruqt/hclconfig/test_fixtures/structs"
+	"go.instruqt.com/hclconfig/test_fixtures/structs"
 	"github.com/stretchr/testify/require"
 	"github.com/zclconf/go-cty/cty"
 )

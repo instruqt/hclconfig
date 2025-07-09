@@ -3,7 +3,7 @@ package structs
 import (
 	"fmt"
 
-	"github.com/instruqt/hclconfig/types"
+	"go.instruqt.com/hclconfig/types"
 )
 
 // TypeParseError defines a resource that always retuns an error when parsing

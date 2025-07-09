@@ -10,11 +10,11 @@ import (
 	"time"
 
 	"github.com/hashicorp/hcl/v2"
-	"github.com/instruqt/hclconfig/errors"
-	"github.com/instruqt/hclconfig/resources"
-	"github.com/instruqt/hclconfig/test_fixtures/embedded"
-	"github.com/instruqt/hclconfig/test_fixtures/structs"
-	"github.com/instruqt/hclconfig/types"
+	"go.instruqt.com/hclconfig/errors"
+	"go.instruqt.com/hclconfig/resources"
+	"go.instruqt.com/hclconfig/test_fixtures/embedded"
+	"go.instruqt.com/hclconfig/test_fixtures/structs"
+	"go.instruqt.com/hclconfig/types"
 	"github.com/stretchr/testify/require"
 	"github.com/zclconf/go-cty/cty"
 )

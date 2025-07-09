@@ -1,6 +1,6 @@
 package structs
 
-import "github.com/instruqt/hclconfig/types"
+import "go.instruqt.com/hclconfig/types"
 
 // TypeNetwork is the string resource type for Network resources
 const TypeNetwork = "network"
