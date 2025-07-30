@@ -288,6 +288,7 @@ func createCallback(c *Config, wf WalkCallback) func(v dag.Vertex) (diags dag.Di
 					"Invalid nested splat expressions",
 					"Function calls not allowed",
 					"Unsupported argument",
+					"Unsupported attribute",
 				}
 
 				if slices.Contains(errorSummaries, err.Summary) {
