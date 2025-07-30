@@ -290,6 +290,17 @@ func createCallback(c *Config, wf WalkCallback) func(v dag.Vertex) (diags dag.Di
 					"Unsupported argument",
 					"Unsupported attribute",
 					"Unsupported block type",
+					"Missing required argument",
+					"Extraneous argument",
+					"Duplicate argument",
+					"Invalid expression",
+					"Invalid reference",
+					"Incorrect value type",
+					"Invalid value",
+					"Value out of range",
+					"Missing required block",
+					"Duplicate block",
+					"Invalid block",
 				}
 
 				if slices.Contains(errorSummaries, err.Summary) {
