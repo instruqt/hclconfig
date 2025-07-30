@@ -289,6 +289,7 @@ func createCallback(c *Config, wf WalkCallback) func(v dag.Vertex) (diags dag.Di
 					"Function calls not allowed",
 					"Unsupported argument",
 					"Unsupported attribute",
+					"Unsupported block type",
 				}
 
 				if slices.Contains(errorSummaries, err.Summary) {
