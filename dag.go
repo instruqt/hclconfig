@@ -590,10 +590,21 @@ func validateAttribute(v reflect.Value, t reflect.Type, properties []string) err
 	case reflect.Slice:
 		nt := t.Elem()
 
-		// try to parse the index, if it fails its not a valid index
+		// try to parse the index, if it fails try named lookup
 		i, err := strconv.ParseInt(properties[0], 10, 32)
 		if err != nil {
-			return fmt.Errorf(`invalid list index: "%s"`, properties[0])
+			// try named lookup - find element where label field matches properties[0]
+			nv, found := findSliceElementByLabel(v, properties[0])
+			if !found {
+				return fmt.Errorf(`invalid list index: "%s"`, properties[0])
+			}
+
+			// if we only have a name, we are done
+			if len(properties) == 1 {
+				return nil
+			}
+
+			return validateAttribute(nv, nt, properties[1:])
 		}
 
 		// check that the index is not greater than the length of the slice
@@ -645,6 +656,62 @@ func validateAttribute(v reflect.Value, t reflect.Type, properties []string) err
 	}
 
 	return fmt.Errorf(`unable to find dependent attribute: "%s"`, properties[0])
+}
+
+// findSliceElementByLabel searches a slice for an element where the HCL label field
+// matches the given name. It looks for struct fields tagged with `hcl:"...,label"`.
+func findSliceElementByLabel(v reflect.Value, name string) (reflect.Value, bool) {
+	if v.Len() == 0 {
+		return reflect.Value{}, false
+	}
+
+	// Get the element type
+	elemType := v.Type().Elem()
+
+	// Handle pointer to struct
+	if elemType.Kind() == reflect.Ptr {
+		elemType = elemType.Elem()
+	}
+
+	// Must be a struct to have labeled fields
+	if elemType.Kind() != reflect.Struct {
+		return reflect.Value{}, false
+	}
+
+	// Find the label field index
+	labelFieldIndex := -1
+	for i := 0; i < elemType.NumField(); i++ {
+		field := elemType.Field(i)
+		hclTag := field.Tag.Get("hcl")
+		if hclTag != "" && strings.Contains(hclTag, ",label") {
+			labelFieldIndex = i
+			break
+		}
+	}
+
+	if labelFieldIndex == -1 {
+		return reflect.Value{}, false
+	}
+
+	// Search for matching element
+	for i := 0; i < v.Len(); i++ {
+		elem := v.Index(i)
+
+		// Dereference pointer if needed
+		if elem.Kind() == reflect.Ptr {
+			if elem.IsNil() {
+				continue
+			}
+			elem = elem.Elem()
+		}
+
+		labelField := elem.Field(labelFieldIndex)
+		if labelField.Kind() == reflect.String && labelField.String() == name {
+			return v.Index(i), true
+		}
+	}
+
+	return reflect.Value{}, false
 }
 
 func createParserError(r types.Resource, msg string) *errors.ParserError {
