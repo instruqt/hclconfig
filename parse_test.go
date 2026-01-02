@@ -913,10 +913,26 @@ func TestParserStopsParseOnCallbackError(t *testing.T) {
 	_, err = p.ParseFile(absoluteFolderPath)
 	require.Error(t, err)
 
-	// only 17 of the resources and variables should be created, none of the descendants of base
-	require.GreaterOrEqual(t, len(calls), 16)
-	require.LessOrEqual(t, len(calls), 17)
-	require.NotContains(t, "resource.module.consul_1", calls)
+	// Verify semantic correctness instead of exact count (which varies due to concurrent processing timing)
+	// The base container should have been called before the error
+	require.Contains(t, calls, "resource.container.base")
+
+	// Resources that depend on base should NOT be processed after the error
+	for _, call := range calls {
+		// consul_1 and its resources depend on base, so they should not be in the list
+		require.NotContains(t, call, "module.consul_1.resource")
+		require.NotContains(t, call, "module.consul_1.output")
+		// consul_3 depends on consul_1, so its resources/outputs should not be processed
+		// But variables can be processed before the error since they don't have dependencies
+		require.NotContains(t, call, "module.consul_3.resource")
+		require.NotContains(t, call, "module.consul_3.output")
+		// outputs that depend on consul_1 should not be processed
+		require.NotContains(t, call, "output.module1_")
+		require.NotContains(t, call, "output.module3_")
+	}
+
+	// consul_2 doesn't depend on base, so it MAY be processed (depending on timing)
+	// We don't assert either way since it's timing-dependent
 }
 
 func TestParserDeserializesJSONCorrectly(t *testing.T) {

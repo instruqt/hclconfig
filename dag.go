@@ -437,8 +437,9 @@ func setContextVariablesFromList(c *Config, r types.Resource, values []string, c
 		}
 
 		fqrn.Attribute = ""
+		basePath := fqrn.String()
 
-		err = setContextVariableFromPath(ctx, fqrn.String(), ctyRes)
+		err = setContextVariableFromPath(ctx, basePath, ctyRes)
 		if err != nil {
 			return createParserError(r, fmt.Sprintf(`unable to set context variable: %s`, err))
 		}
@@ -590,10 +591,21 @@ func validateAttribute(v reflect.Value, t reflect.Type, properties []string) err
 	case reflect.Slice:
 		nt := t.Elem()
 
-		// try to parse the index, if it fails its not a valid index
+		// try to parse the index, if it fails try named lookup
 		i, err := strconv.ParseInt(properties[0], 10, 32)
 		if err != nil {
-			return fmt.Errorf(`invalid list index: "%s"`, properties[0])
+			// not a numeric index, try named lookup for labeled blocks
+			nv, found := findSliceElementByLabel(v, properties[0])
+			if !found {
+				return fmt.Errorf(`invalid list index: "%s"`, properties[0])
+			}
+
+			// if we only have a name, we are done
+			if len(properties) == 1 {
+				return nil
+			}
+
+			return validateAttribute(nv, nt, properties[1:])
 		}
 
 		// check that the index is not greater than the length of the slice
@@ -645,6 +657,211 @@ func validateAttribute(v reflect.Value, t reflect.Type, properties []string) err
 	}
 
 	return fmt.Errorf(`unable to find dependent attribute: "%s"`, properties[0])
+}
+
+// translateNamedReferences walks through an attribute path and translates named block references
+// to numeric indices. For example, "user.admin.email" becomes "user.0.email" if admin is at index 0.
+// This allows both numeric and named access to work.
+func translateNamedReferences(resource types.Resource, attrPath string) string {
+	if attrPath == "" {
+		return ""
+	}
+
+	properties := strings.Split(attrPath, ".")
+	v := reflect.ValueOf(resource)
+	t := reflect.TypeOf(resource)
+
+	var result []string
+	for i := 0; i < len(properties); i++ {
+		prop := properties[i]
+
+		// Dereference pointer if needed
+		if v.Kind() == reflect.Ptr {
+			if v.IsNil() {
+				// Can't translate further, just return what we have
+				result = append(result, properties[i:]...)
+				break
+			}
+			v = v.Elem()
+			t = t.Elem()
+		}
+
+		if v.Kind() != reflect.Struct {
+			// Can't navigate further, append remaining properties
+			result = append(result, properties[i:]...)
+			break
+		}
+
+		// Find the field matching this property
+		var field reflect.StructField
+		var fieldVal reflect.Value
+		found := false
+
+		for j := 0; j < t.NumField(); j++ {
+			f := t.Field(j)
+			hclTag := f.Tag.Get("hcl")
+			if hclTag == "" {
+				continue
+			}
+
+			hclName := strings.Split(hclTag, ",")[0]
+			if hclName == prop {
+				field = f
+				fieldVal = v.Field(j)
+				found = true
+				break
+			}
+		}
+
+		if !found {
+			// Field not found, just append remaining path
+			result = append(result, properties[i:]...)
+			break
+		}
+
+		// Check if this is a slice
+		if fieldVal.Kind() == reflect.Slice && i+1 < len(properties) {
+			nextProp := properties[i+1]
+
+			// Try to parse as integer
+			_, err := strconv.ParseInt(nextProp, 10, 32)
+			if err != nil {
+				// Not a number, try named lookup
+				_, idx := findSliceElementIndexByLabel(fieldVal, nextProp)
+				if idx >= 0 {
+					// Found it! Replace the name with the index
+					result = append(result, prop)
+					result = append(result, strconv.Itoa(idx))
+					i++ // Skip the next property since we consumed it
+
+					// Update v and t to the element type for further navigation
+					elemType := fieldVal.Type().Elem()
+					if elemType.Kind() == reflect.Ptr {
+						elemType = elemType.Elem()
+					}
+					if idx < fieldVal.Len() {
+						v = fieldVal.Index(idx)
+						t = elemType
+					}
+					continue
+				}
+			}
+		}
+
+		// Not a slice or numeric access, just append
+		result = append(result, prop)
+		v = fieldVal
+		t = field.Type
+	}
+
+	return strings.Join(result, ".")
+}
+
+// findSliceElementIndexByLabel searches a slice for an element where the HCL label field
+// matches the given name and returns both the element and its index.
+func findSliceElementIndexByLabel(v reflect.Value, name string) (reflect.Value, int) {
+	if v.Len() == 0 {
+		return reflect.Value{}, -1
+	}
+
+	elemType := v.Type().Elem()
+	if elemType.Kind() == reflect.Ptr {
+		elemType = elemType.Elem()
+	}
+
+	if elemType.Kind() != reflect.Struct {
+		return reflect.Value{}, -1
+	}
+
+	// Find the label field index
+	labelFieldIndex := -1
+	for i := 0; i < elemType.NumField(); i++ {
+		field := elemType.Field(i)
+		hclTag := field.Tag.Get("hcl")
+		if hclTag != "" && strings.Contains(hclTag, ",label") {
+			labelFieldIndex = i
+			break
+		}
+	}
+
+	if labelFieldIndex == -1 {
+		return reflect.Value{}, -1
+	}
+
+	// Search for matching element
+	for i := 0; i < v.Len(); i++ {
+		elem := v.Index(i)
+
+		if elem.Kind() == reflect.Ptr {
+			if elem.IsNil() {
+				continue
+			}
+			elem = elem.Elem()
+		}
+
+		labelField := elem.Field(labelFieldIndex)
+		if labelField.Kind() == reflect.String && labelField.String() == name {
+			return v.Index(i), i
+		}
+	}
+
+	return reflect.Value{}, -1
+}
+
+// findSliceElementByLabel searches a slice for an element where the HCL label field
+// matches the given name. It looks for struct fields tagged with `hcl:"...,label"`.
+func findSliceElementByLabel(v reflect.Value, name string) (reflect.Value, bool) {
+	if v.Len() == 0 {
+		return reflect.Value{}, false
+	}
+
+	// Get the element type
+	elemType := v.Type().Elem()
+
+	// Handle pointer to struct
+	if elemType.Kind() == reflect.Ptr {
+		elemType = elemType.Elem()
+	}
+
+	// Must be a struct to have labeled fields
+	if elemType.Kind() != reflect.Struct {
+		return reflect.Value{}, false
+	}
+
+	// Find the label field index
+	labelFieldIndex := -1
+	for i := 0; i < elemType.NumField(); i++ {
+		field := elemType.Field(i)
+		hclTag := field.Tag.Get("hcl")
+		if hclTag != "" && strings.Contains(hclTag, ",label") {
+			labelFieldIndex = i
+			break
+		}
+	}
+
+	if labelFieldIndex == -1 {
+		return reflect.Value{}, false
+	}
+
+	// Search for matching element
+	for i := 0; i < v.Len(); i++ {
+		elem := v.Index(i)
+
+		// Dereference pointer if needed
+		if elem.Kind() == reflect.Ptr {
+			if elem.IsNil() {
+				continue
+			}
+			elem = elem.Elem()
+		}
+
+		labelField := elem.Field(labelFieldIndex)
+		if labelField.Kind() == reflect.String && labelField.String() == name {
+			return v.Index(i), true
+		}
+	}
+
+	return reflect.Value{}, false
 }
 
 func createParserError(r types.Resource, msg string) *errors.ParserError {
