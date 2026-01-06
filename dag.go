@@ -161,9 +161,15 @@ func createCallback(c *Config, wf WalkCallback) func(v dag.Vertex) (diags dag.Di
 			panic("no context found for resource")
 		}
 
+		// validate labels on labeled blocks
+		err = validateResourceLabels(r)
+		if err != nil {
+			return diags.Append(createParserError(r, err.Error()))
+		}
+
 		// validate the resource links
 		if len(r.Metadata().Links) > 0 {
-			err := validateLinkedResources(c, r, r.Metadata().Links)
+			err = validateLinkedResources(c, r, r.Metadata().Links)
 			if err != nil {
 				return diags.Append(createParserError(
 					r,
@@ -442,6 +448,88 @@ func setContextVariablesFromList(c *Config, r types.Resource, values []string, c
 		err = setContextVariableFromPath(ctx, basePath, ctyRes)
 		if err != nil {
 			return createParserError(r, fmt.Sprintf(`unable to set context variable: %s`, err))
+		}
+	}
+
+	return nil
+}
+
+// validateResourceLabels validates that all labels on labeled blocks follow the naming rules
+// Labels must not be purely numeric to avoid ambiguity with numeric index access
+func validateResourceLabels(r types.Resource) error {
+	v := reflect.ValueOf(r)
+	if v.Kind() == reflect.Ptr {
+		v = v.Elem()
+	}
+
+	if v.Kind() != reflect.Struct {
+		return nil
+	}
+
+	t := v.Type()
+	for i := 0; i < t.NumField(); i++ {
+		field := t.Field(i)
+		fieldVal := v.Field(i)
+
+		// Check if this is a slice with hcl block tag
+		hclTag := field.Tag.Get("hcl")
+		if hclTag == "" || !strings.Contains(hclTag, ",block") {
+			continue
+		}
+
+		if fieldVal.Kind() != reflect.Slice {
+			continue
+		}
+
+		// Get block name for error messages
+		blockName := strings.Split(hclTag, ",")[0]
+
+		// Get element type and check for label field
+		elemType := fieldVal.Type().Elem()
+		if elemType.Kind() == reflect.Ptr {
+			elemType = elemType.Elem()
+		}
+		if elemType.Kind() != reflect.Struct {
+			continue
+		}
+
+		// Find label field
+		labelFieldIdx := -1
+		for j := 0; j < elemType.NumField(); j++ {
+			if elemType.Field(j).Tag.Get("hcl") == ",label" {
+				labelFieldIdx = j
+				break
+			}
+		}
+
+		if labelFieldIdx == -1 {
+			continue // No label field, not a labeled block
+		}
+
+		// Validate each label
+		for j := 0; j < fieldVal.Len(); j++ {
+			elem := fieldVal.Index(j)
+			if elem.Kind() == reflect.Ptr {
+				if elem.IsNil() {
+					continue
+				}
+				elem = elem.Elem()
+			}
+
+			labelVal := elem.Field(labelFieldIdx)
+			if labelVal.Kind() != reflect.String {
+				continue
+			}
+
+			label := labelVal.String()
+			if label == "" {
+				continue
+			}
+
+			// Validate the label
+			if err := validateLabel(label, blockName); err != nil {
+				return err
+			}
 		}
 	}
 

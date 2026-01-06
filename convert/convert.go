@@ -121,6 +121,8 @@ func transformLabeledBlocks(v reflect.Value, ctyMap map[string]cty.Value) {
 
 		// Build a map with BOTH numeric indices and label keys
 		// This allows both user[0] and user.admin access patterns
+		// IMPORTANT: Labels take precedence over numeric indices to avoid ambiguity
+		// when labels are purely numeric (e.g., user "0")
 		labeledMap := make(map[string]cty.Value)
 		for j := 0; j < fieldVal.Len(); j++ {
 			elem := fieldVal.Index(j)
@@ -147,11 +149,12 @@ func transformLabeledBlocks(v reflect.Value, ctyMap map[string]cty.Value) {
 				continue
 			}
 
-			// Add by label for named access (user.admin)
-			labeledMap[label] = elemCty
-
-			// ALSO add by numeric index as string for indexed access (user.0 or user["0"])
+			// Add by numeric index first for indexed access (user.0 or user["0"])
 			labeledMap[strconv.Itoa(j)] = elemCty
+
+			// Then add by label for named access (user.admin)
+			// If label is numeric and matches an index, label takes precedence
+			labeledMap[label] = elemCty
 		}
 
 		// Replace the list with a map in ctyMap for labeled blocks

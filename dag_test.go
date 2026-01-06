@@ -357,6 +357,9 @@ func TestLabeledBlockInvalidReferences(t *testing.T) {
 
 	// 8. Named access on non-block slice
 	require.True(t, containsSubstring(errorMessages, "invalid list index") || containsSubstring(errorMessages, "roles"))
+
+	// 9. Purely numeric labels
+	require.True(t, containsSubstring(errorMessages, "purely numeric") || containsSubstring(errorMessages, "\"0\"") || containsSubstring(errorMessages, "\"123\""))
 }
 
 // Helper function to check if any error message contains a substring

@@ -94,3 +94,18 @@ resource "cloud_account" "invalid_named_on_slice" {
     email = resource.cloud_account.base.user.admin.roles.admin
   }
 }
+
+resource "cloud_account" "invalid_numeric_label" {
+  provider = "aws"
+
+  // ERROR: labels cannot be purely numeric
+  user "0" {
+    email = "zero@example.com"
+    roles = ["user"]
+  }
+
+  user "123" {
+    email = "oneTwoThree@example.com"
+    roles = ["admin"]
+  }
+}
