@@ -121,8 +121,7 @@ func transformLabeledBlocks(v reflect.Value, ctyMap map[string]cty.Value) {
 
 		// Build a map with BOTH numeric indices and label keys
 		// This allows both user[0] and user.admin access patterns
-		// IMPORTANT: Labels take precedence over numeric indices to avoid ambiguity
-		// when labels are purely numeric (e.g., user "0")
+		// NOTE: Labels cannot be purely numeric (validated in dag.go), so no collision
 		labeledMap := make(map[string]cty.Value)
 		for j := 0; j < fieldVal.Len(); j++ {
 			elem := fieldVal.Index(j)
