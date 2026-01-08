@@ -22,8 +22,11 @@ type CloudAccount struct {
 }
 
 // CloudUser represents a cloud user with a name label
+// Note: Using hcl:"name,label" (not just hcl:",label") allows gohcl to:
+// 1. Read the label from block syntax (user "admin" { })
+// 2. Also accept "name" as an attribute when decoding from CTY references
 type CloudUser struct {
-	Name       string   `hcl:",label" json:"name"`
+	Name       string   `hcl:"name,label" json:"name"`
 	Email      string   `hcl:"email" json:"email"`
 	Roles      []string `hcl:"roles,optional" json:"roles,omitempty"`
 	IamPolicy  string   `hcl:"iam_policy,optional" json:"iam_policy,omitempty"`

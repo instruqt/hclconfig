@@ -54,7 +54,9 @@ func GoToCtyValue(val any) (cty.Value, error) {
 		ctyMap["meta"] = metaVal
 
 		// Transform labeled blocks to support both named and indexed access
-		transformLabeledBlocks(reflect.ValueOf(val), ctyMap)
+		// Pass parent resource ID so elements can have their own meta.id
+		parentID := r.Metadata().ID
+		transformLabeledBlocks(reflect.ValueOf(val), ctyMap, parentID)
 
 		ctyVal = cty.ObjectVal(ctyMap)
 	}
@@ -64,7 +66,9 @@ func GoToCtyValue(val any) (cty.Value, error) {
 
 // transformLabeledBlocks converts slice fields with HCL block+label tags to maps.
 // This allows named access like resource.cloud_account.prod.user.admin instead of user[0].
-func transformLabeledBlocks(v reflect.Value, ctyMap map[string]cty.Value) {
+// parentID is the resource ID (e.g., "resource.aws_account.sandbox") used to build
+// meta.id for each labeled block element.
+func transformLabeledBlocks(v reflect.Value, ctyMap map[string]cty.Value, parentID string) {
 	// Dereference pointer
 	if v.Kind() == reflect.Ptr {
 		if v.IsNil() {
@@ -142,8 +146,12 @@ func transformLabeledBlocks(v reflect.Value, ctyMap map[string]cty.Value) {
 				continue
 			}
 
+			// Build the element's meta.id: parentID.blockType.label
+			// e.g., "resource.aws_account.sandbox.user.admin"
+			elementID := fmt.Sprintf("%s.%s.%s", parentID, hclName, label)
+
 			// Convert element to cty AS ITS ACTUAL TYPE (not ResourceBase)
-			elemCty, err := elementToCty(elem)
+			elemCty, err := elementToCtyWithMeta(elem, elementID)
 			if err != nil {
 				continue
 			}
@@ -175,8 +183,9 @@ func findLabelFieldIndex(t reflect.Type) int {
 	return -1
 }
 
-// elementToCty converts a struct element to a cty.Value
-func elementToCty(v reflect.Value) (cty.Value, error) {
+// elementToCtyWithMeta converts a struct element to a cty.Value with meta.id populated.
+// This is used for labeled block elements to include the reference path in meta.id.
+func elementToCtyWithMeta(v reflect.Value, elementID string) (cty.Value, error) {
 	if v.Kind() == reflect.Ptr {
 		if v.IsNil() {
 			return cty.NilVal, fmt.Errorf("nil pointer")
@@ -199,14 +208,87 @@ func elementToCty(v reflect.Value) (cty.Value, error) {
 		return cty.NilVal, err
 	}
 
-	// If the value is an object, recursively transform labeled blocks within it
+	// If the value is an object, add meta and transform nested labeled blocks
 	if ctyVal.Type().IsObjectType() {
 		valueMap := ctyVal.AsValueMap()
-		transformLabeledBlocks(v, valueMap)
+
+		// Add the label field to the CTY map if it exists
+		// The label field (hcl:",label") is not included by gocty because
+		// it doesn't have an HCL attribute name
+		addLabelFieldToCtyMap(v, valueMap)
+
+		// Add meta with the element's ID (reference path)
+		// Use gocty to convert a proper Meta struct - this ensures the CTY structure
+		// matches what gocty expects when decoding into types.ResourceBase
+		meta := types.Meta{ID: elementID}
+		metaTyp, err := gocty.ImpliedType(meta)
+		if err != nil {
+			return cty.NilVal, fmt.Errorf("failed to get meta type: %w", err)
+		}
+		metaVal, err := gocty.ToCtyValue(meta, metaTyp)
+		if err != nil {
+			return cty.NilVal, fmt.Errorf("failed to convert meta: %w", err)
+		}
+		valueMap["meta"] = metaVal
+
+		// Also add disabled and depends_on for ResourceBase compatibility
+		valueMap["disabled"] = cty.False
+		valueMap["depends_on"] = cty.ListValEmpty(cty.String)
+
+		// Recursively transform nested labeled blocks (pass empty parentID for nested)
+		transformLabeledBlocks(v, valueMap, elementID)
+
 		return cty.ObjectVal(valueMap), nil
 	}
 
 	return ctyVal, nil
+}
+
+// addLabelFieldToCtyMap finds the label field in a struct and adds it to the CTY map
+// with an appropriate key name (using json tag or lowercase field name)
+func addLabelFieldToCtyMap(v reflect.Value, valueMap map[string]cty.Value) {
+	if v.Kind() == reflect.Ptr {
+		if v.IsNil() {
+			return
+		}
+		v = v.Elem()
+	}
+
+	if v.Kind() != reflect.Struct {
+		return
+	}
+
+	t := v.Type()
+	for i := 0; i < t.NumField(); i++ {
+		field := t.Field(i)
+		hclTag := field.Tag.Get("hcl")
+
+		// Check if this is the label field
+		if !strings.Contains(hclTag, ",label") {
+			continue
+		}
+
+		// Get the field value
+		fieldVal := v.Field(i)
+		if fieldVal.Kind() != reflect.String {
+			continue
+		}
+
+		// Determine the key name to use:
+		// 1. Use json tag if available
+		// 2. Fall back to lowercase field name
+		keyName := strings.ToLower(field.Name)
+		if jsonTag := field.Tag.Get("json"); jsonTag != "" {
+			parts := strings.Split(jsonTag, ",")
+			if parts[0] != "" && parts[0] != "-" {
+				keyName = parts[0]
+			}
+		}
+
+		// Add to the map
+		valueMap[keyName] = cty.StringVal(fieldVal.String())
+		return
+	}
 }
 
 func CtyToGo(val cty.Value, target any) error {

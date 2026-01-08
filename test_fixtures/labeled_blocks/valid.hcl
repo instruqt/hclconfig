@@ -244,3 +244,208 @@ output "special_char_equivalence" {
     same     = resource.cloud_account.special_chars.user.user123.email == resource.cloud_account.special_chars.user.2.email
   }
 }
+
+// =============================================================================
+// Test case: Referencing labeled blocks as slice elements
+// This tests the scenario where members = [resource.cloud_account.prod.user.admin]
+// =============================================================================
+
+// Source cloud account with labeled user blocks for slice reference tests
+resource "cloud_account" "source" {
+  provider = "aws"
+
+  user "admin" {
+    email      = "admin@example.com"
+    roles      = ["admin", "owner"]
+    iam_policy = "arn:aws:iam::aws:policy/AdministratorAccess"
+  }
+
+  user "developer" {
+    email      = "dev@example.com"
+    roles      = ["developer"]
+    iam_policy = "arn:aws:iam::aws:policy/PowerUserAccess"
+  }
+
+  user "viewer" {
+    email = "viewer@example.com"
+    roles = ["viewer"]
+  }
+
+  permission {
+    resource = "s3:*"
+    actions  = ["s3:GetObject"]
+    effect   = "allow"
+  }
+
+  tags = {
+    environment = "production"
+  }
+}
+
+// Test 1: Team with member references (whole CloudUser objects)
+resource "cloud_team" "engineering" {
+  name        = "Engineering Team"
+  description = "Core engineering team"
+
+  // Reference multiple labeled blocks as slice elements
+  // This is the key test case: members = [resource.cloud_account.source.user.admin, ...]
+  members = [
+    resource.cloud_account.source.user.admin,
+    resource.cloud_account.source.user.developer
+  ]
+
+  // Reference a single labeled block
+  lead = resource.cloud_account.source.user.admin
+
+  // Reference specific fields from labeled blocks (this should work)
+  member_emails = [
+    resource.cloud_account.source.user.admin.email,
+    resource.cloud_account.source.user.developer.email,
+    resource.cloud_account.source.user.viewer.email
+  ]
+
+  tags = {
+    type = "engineering"
+  }
+}
+
+// Test 2: Team using numeric index access (backward compatibility)
+resource "cloud_team" "operations" {
+  name = "Operations Team"
+
+  // Same test but using numeric indices
+  members = [
+    resource.cloud_account.source.user.0,
+    resource.cloud_account.source.user.2
+  ]
+
+  lead = resource.cloud_account.source.user.1
+
+  member_emails = [
+    resource.cloud_account.source.user.0.email,
+    resource.cloud_account.source.user.1.email
+  ]
+
+  tags = {
+    type = "operations"
+  }
+}
+
+// Test 3: Mixed named and numeric access
+resource "cloud_team" "mixed" {
+  name = "Mixed Team"
+
+  members = [
+    resource.cloud_account.source.user.admin,
+    resource.cloud_account.source.user.1,
+    resource.cloud_account.source.user.viewer
+  ]
+
+  member_emails = [
+    resource.cloud_account.source.user.admin.email,
+    resource.cloud_account.source.user.1.email
+  ]
+
+  tags = {
+    type = "mixed"
+  }
+}
+
+// Outputs for slice reference tests
+output "engineering_lead_email" {
+  value = resource.cloud_team.engineering.lead.email
+}
+
+output "engineering_first_member_email" {
+  value = resource.cloud_team.engineering.members[0].email
+}
+
+output "engineering_second_member_email" {
+  value = resource.cloud_team.engineering.members[1].email
+}
+
+output "operations_lead_email" {
+  value = resource.cloud_team.operations.lead.email
+}
+
+output "mixed_member_emails" {
+  value = resource.cloud_team.mixed.member_emails
+}
+
+// =============================================================================
+// Test case: Using actual types for labeled block references
+// Tests CloudCredentials with Users []CloudUser (actual type for full round-trip)
+// =============================================================================
+
+// Source cloud account for credentials tests
+resource "cloud_account" "test" {
+  provider = "aws"
+
+  user "admin" {
+    email      = "admin@test.com"
+    roles      = ["admin"]
+    iam_policy = "arn:aws:iam::aws:policy/AdministratorAccess"
+  }
+
+  user "developer" {
+    email      = "dev@test.com"
+    roles      = ["developer"]
+    iam_policy = "arn:aws:iam::aws:policy/PowerUserAccess"
+  }
+
+  permission {
+    resource = "ec2:*"
+    actions  = ["ec2:DescribeInstances"]
+    effect   = "allow"
+  }
+
+  tags = {
+    env = "test"
+  }
+}
+
+// Test: CloudCredentials with Users []CloudUser (actual type)
+// This works because the types match - full round-trip!
+resource "cloud_credentials" "primary" {
+  name = "Primary Credentials"
+
+  // Using actual types: this decodes the full user object
+  users = [
+    resource.cloud_account.test.user.admin,
+    resource.cloud_account.test.user.developer
+  ]
+
+  // Account-level references
+  accounts = [
+    resource.cloud_account.test
+  ]
+}
+
+// Test with numeric indices (backward compatibility)
+resource "cloud_credentials" "secondary" {
+  name = "Secondary Credentials"
+
+  users = [
+    resource.cloud_account.test.user.0,
+    resource.cloud_account.test.user.1
+  ]
+}
+
+// Test with mixed access patterns
+resource "cloud_credentials" "mixed" {
+  name = "Mixed Credentials"
+
+  users = [
+    resource.cloud_account.test.user.admin,
+    resource.cloud_account.test.user.1
+  ]
+}
+
+// Outputs for credentials tests
+output "test_account_first_user" {
+  value = resource.cloud_account.test.user.admin.email
+}
+
+output "test_account_second_user" {
+  value = resource.cloud_account.test.user.developer.email
+}
