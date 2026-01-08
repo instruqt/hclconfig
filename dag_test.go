@@ -99,6 +99,8 @@ func TestLabeledBlockAccess(t *testing.T) {
 
 	p := setupParser(t)
 	p.RegisterType(structs.TypeCloudAccount, &structs.CloudAccount{})
+	p.RegisterType(structs.TypeCloudTeam, &structs.CloudTeam{})
+	p.RegisterType(structs.TypeCloudCredentials, &structs.CloudCredentials{})
 
 	c, err := p.ParseFile(absolutePath)
 	require.NoError(t, err)
@@ -156,6 +158,8 @@ func TestLabeledBlockOutputs(t *testing.T) {
 
 	p := setupParser(t)
 	p.RegisterType(structs.TypeCloudAccount, &structs.CloudAccount{})
+	p.RegisterType(structs.TypeCloudTeam, &structs.CloudTeam{})
+	p.RegisterType(structs.TypeCloudCredentials, &structs.CloudCredentials{})
 
 	c, err := p.ParseFile(absolutePath)
 	require.NoError(t, err)
@@ -285,6 +289,8 @@ func TestLabeledBlockValidation(t *testing.T) {
 
 	p := setupParser(t)
 	p.RegisterType(structs.TypeCloudAccount, &structs.CloudAccount{})
+	p.RegisterType(structs.TypeCloudTeam, &structs.CloudTeam{})
+	p.RegisterType(structs.TypeCloudCredentials, &structs.CloudCredentials{})
 
 	c, err := p.ParseFile(absolutePath)
 	require.NoError(t, err)
@@ -383,4 +389,159 @@ func containsInMiddle(s, substr string) bool {
 		}
 	}
 	return false
+}
+
+// TestLabeledBlockReferenceSlice tests referencing labeled blocks as slice elements
+// This tests: members = [resource.cloud_account.source.user.admin, ...]
+func TestLabeledBlockReferenceSlice(t *testing.T) {
+	absolutePath, err := filepath.Abs("./test_fixtures/labeled_blocks/valid.hcl")
+	require.NoError(t, err)
+
+	p := setupParser(t)
+	p.RegisterType(structs.TypeCloudAccount, &structs.CloudAccount{})
+	p.RegisterType(structs.TypeCloudTeam, &structs.CloudTeam{})
+	p.RegisterType(structs.TypeCloudCredentials, &structs.CloudCredentials{})
+
+	c, err := p.ParseFile(absolutePath)
+	require.NoError(t, err)
+
+	// Verify the source cloud account
+	source, err := c.FindResource("resource.cloud_account.source")
+	require.NoError(t, err)
+	sourceAccount := source.(*structs.CloudAccount)
+	require.Len(t, sourceAccount.Users, 3)
+
+	// Test 1: Engineering team with named references
+	eng, err := c.FindResource("resource.cloud_team.engineering")
+	require.NoError(t, err)
+	engTeam := eng.(*structs.CloudTeam)
+
+	require.Equal(t, "Engineering Team", engTeam.Name)
+
+	// Debug: log what we got
+	t.Logf("Engineering team Members count: %d", len(engTeam.Members))
+	for i, m := range engTeam.Members {
+		t.Logf("  Member[%d]: Name=%q Email=%q Roles=%v IamPolicy=%q", i, m.Name, m.Email, m.Roles, m.IamPolicy)
+	}
+	if engTeam.Lead != nil {
+		t.Logf("Lead: Name=%q Email=%q", engTeam.Lead.Name, engTeam.Lead.Email)
+	} else {
+		t.Logf("Lead: nil")
+	}
+	t.Logf("MemberEmails: %v", engTeam.MemberEmails)
+
+	// Verify members slice was populated with labeled block references
+	// CloudUserRef uses hcl:"name" so it can receive the label from CTY attribute
+	require.Len(t, engTeam.Members, 2, "Expected 2 members from labeled block references")
+	require.Equal(t, "admin", engTeam.Members[0].Name, "Name should be populated from CTY 'name' attribute")
+	require.Equal(t, "admin@example.com", engTeam.Members[0].Email)
+	require.Equal(t, "developer", engTeam.Members[1].Name, "Name should be populated from CTY 'name' attribute")
+	require.Equal(t, "dev@example.com", engTeam.Members[1].Email)
+
+	// Verify lead (single reference to labeled block)
+	require.NotNil(t, engTeam.Lead)
+	require.Equal(t, "admin", engTeam.Lead.Name, "Lead Name should be populated from CTY 'name' attribute")
+	require.Equal(t, "admin@example.com", engTeam.Lead.Email)
+
+	// Verify member_emails (field extraction from labeled blocks)
+	require.Len(t, engTeam.MemberEmails, 3)
+	require.Equal(t, "admin@example.com", engTeam.MemberEmails[0])
+	require.Equal(t, "dev@example.com", engTeam.MemberEmails[1])
+	require.Equal(t, "viewer@example.com", engTeam.MemberEmails[2])
+
+	// Test 2: Operations team with numeric index references
+	ops, err := c.FindResource("resource.cloud_team.operations")
+	require.NoError(t, err)
+	opsTeam := ops.(*structs.CloudTeam)
+
+	require.Len(t, opsTeam.Members, 2)
+	// user.0 should be admin, user.2 should be viewer
+	require.Equal(t, "admin", opsTeam.Members[0].Name)
+	require.Equal(t, "viewer", opsTeam.Members[1].Name)
+
+	// user.1 should be developer
+	require.NotNil(t, opsTeam.Lead)
+	require.Equal(t, "developer", opsTeam.Lead.Name)
+
+	// Test 3: Mixed team with both named and numeric access
+	mixed, err := c.FindResource("resource.cloud_team.mixed")
+	require.NoError(t, err)
+	mixedTeam := mixed.(*structs.CloudTeam)
+
+	require.Len(t, mixedTeam.Members, 3)
+	require.Equal(t, "admin", mixedTeam.Members[0].Name)      // user.admin
+	require.Equal(t, "developer", mixedTeam.Members[1].Name)  // user.1
+	require.Equal(t, "viewer", mixedTeam.Members[2].Name)     // user.viewer
+
+	// Verify outputs
+	out, err := c.FindResource("output.engineering_lead_email")
+	require.NoError(t, err)
+	require.Equal(t, "admin@example.com", out.(*resources.Output).Value)
+
+	out, err = c.FindResource("output.engineering_first_member_email")
+	require.NoError(t, err)
+	require.Equal(t, "admin@example.com", out.(*resources.Output).Value)
+}
+
+// TestLabeledBlockResourceBaseSlice documents that using actual types ([]CloudUser)
+// for labeled block references results in a full round-trip with all data preserved.
+//
+// This test demonstrates: when the receiving type matches the labeled block element type,
+// gohcl can decode the full object including all fields.
+//
+// If you need to pass labeled block references to another resource, you should:
+// 1. Use the same struct type (but with hcl:"name" instead of hcl:",label" for receiving)
+// 2. Extract specific fields (e.g., member_emails = [resource...user.admin.email])
+// 3. Use a custom type that matches the expected CTY structure
+func TestLabeledBlockResourceBaseSlice(t *testing.T) {
+	absolutePath, err := filepath.Abs("./test_fixtures/labeled_blocks/valid.hcl")
+	require.NoError(t, err)
+
+	p := setupParser(t)
+	p.RegisterType(structs.TypeCloudAccount, &structs.CloudAccount{})
+	p.RegisterType(structs.TypeCloudTeam, &structs.CloudTeam{})
+	p.RegisterType(structs.TypeCloudCredentials, &structs.CloudCredentials{})
+
+	c, err := p.ParseFile(absolutePath)
+	require.NoError(t, err)
+
+	// Verify source account
+	source, err := c.FindResource("resource.cloud_account.test")
+	require.NoError(t, err)
+	sourceAccount := source.(*structs.CloudAccount)
+	require.Len(t, sourceAccount.Users, 2)
+
+	// IMPORTANT: This test demonstrates that you CANNOT decode CloudUser CTY values
+	// into []ResourceBase because the fields don't match.
+	//
+	// ResourceBase expects: depends_on, disabled, meta
+	// CloudUser provides: name, email, roles, iam_policy, mfa_enabled
+	//
+	// There's no field overlap, so the slice stays empty.
+	primary, err := c.FindResource("resource.cloud_credentials.primary")
+	require.NoError(t, err)
+	primaryCreds := primary.(*structs.CloudCredentials)
+
+	require.Equal(t, "Primary Credentials", primaryCreds.Name)
+
+	// Using actual types (CloudUser) instead of ResourceBase - full round-trip works!
+	t.Logf("Primary creds Users count: %d", len(primaryCreds.Users))
+	for i, u := range primaryCreds.Users {
+		t.Logf("  User[%d]: Name=%q Email=%q Roles=%v IamPolicy=%q", i, u.Name, u.Email, u.Roles, u.IamPolicy)
+	}
+
+	// Should have 2 users with all their data
+	require.Len(t, primaryCreds.Users, 2, "Should decode actual CloudUser objects")
+
+	// Verify we have access to ALL user fields - not just a reference!
+	require.Equal(t, "admin", primaryCreds.Users[0].Name)
+	require.Equal(t, "admin@test.com", primaryCreds.Users[0].Email)
+	require.Equal(t, []string{"admin"}, primaryCreds.Users[0].Roles)
+	require.Equal(t, "arn:aws:iam::aws:policy/AdministratorAccess", primaryCreds.Users[0].IamPolicy)
+
+	require.Equal(t, "developer", primaryCreds.Users[1].Name)
+	require.Equal(t, "dev@test.com", primaryCreds.Users[1].Email)
+
+	// The Accounts slice should also work
+	t.Logf("Primary creds Accounts count: %d", len(primaryCreds.Accounts))
 }
