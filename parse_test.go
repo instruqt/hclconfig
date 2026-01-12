@@ -1340,3 +1340,52 @@ func TestParseParsesToResourceBase(t *testing.T) {
 	o1 := r.(*resources.Output)
 	require.Equal(t, "This is the name of the container", o1.Description)
 }
+
+func TestValidateLabelRejectsPurelyNumeric(t *testing.T) {
+	// Purely numeric labels should be rejected to avoid conflicts with index access
+	err := validateLabel("0", "user")
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "purely numeric")
+
+	err = validateLabel("123", "user")
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "purely numeric")
+
+	err = validateLabel("999", "permission")
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "purely numeric")
+}
+
+func TestValidateLabelAcceptsValidLabels(t *testing.T) {
+	// Valid labels should pass
+	err := validateLabel("admin", "user")
+	require.NoError(t, err)
+
+	err = validateLabel("user-1", "user")
+	require.NoError(t, err)
+
+	err = validateLabel("user_1", "user")
+	require.NoError(t, err)
+
+	err = validateLabel("1admin", "user")
+	require.NoError(t, err)
+
+	err = validateLabel("admin1", "user")
+	require.NoError(t, err)
+
+	err = validateLabel("a0", "user")
+	require.NoError(t, err)
+}
+
+func TestValidateLabelRejectsInvalidCharacters(t *testing.T) {
+	// Labels with invalid characters should be rejected
+	err := validateLabel("user.name", "user")
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "can only contain")
+
+	err = validateLabel("user@domain", "user")
+	require.Error(t, err)
+
+	err = validateLabel("user name", "user")
+	require.Error(t, err)
+}
