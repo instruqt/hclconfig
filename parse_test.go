@@ -383,7 +383,7 @@ func TestParseModuleCreatesResources(t *testing.T) {
 	c, err := p.ParseFile(absoluteFolderPath)
 	require.NoError(t, err)
 
-	require.Len(t, c.Resources, 40)
+	require.Len(t, c.Resources, 41)
 
 	// check resource has been created
 	cont, err := c.FindResource("module.consul_1.resource.container.consul")
@@ -397,6 +397,14 @@ func TestParseModuleCreatesResources(t *testing.T) {
 	require.NoError(t, err)
 
 	require.Equal(t, "onprem", cont.(*structs.Container).Networks[0].Name)
+
+	// check resource has been created
+	cont, err = c.FindResource("module.consul_3.resource.container.consul")
+	require.NoError(t, err)
+
+	// check interpolation value
+	require.Equal(t, "onprem", cont.(*structs.Container).Networks[0].Name)
+
 }
 
 func TestParseModuleDoesNotCacheLocalFiles(t *testing.T) {
@@ -429,7 +437,7 @@ func TestParseModuleCreatesOutputs(t *testing.T) {
 	c, err := p.ParseFile(absoluteFolderPath)
 	require.NoError(t, err)
 
-	require.Len(t, c.Resources, 40)
+	require.Len(t, c.Resources, 41)
 
 	cont, err := c.FindResource("output.module1_container_resources_cpu")
 	require.NoError(t, err)
@@ -444,6 +452,12 @@ func TestParseModuleCreatesOutputs(t *testing.T) {
 	// check output value from module is equal to the module variable
 	// which is set as the variable for the config
 	require.Equal(t, float64(512), cont.(*resources.Output).Value)
+
+	cont, err = c.FindResource("output.module3_container_resources_cpu")
+	require.NoError(t, err)
+
+	// check the output variable is set to the default value for the module
+	require.Equal(t, float64(2048), cont.(*resources.Output).Value)
 
 	cont, err = c.FindResource("output.module1_from_list_1")
 	require.NoError(t, err)
@@ -854,6 +868,10 @@ func TestParserProcessesResourcesInCorrectOrder(t *testing.T) {
 	// the output module_2_container_resources_cpu depends on an output defined in module consul_2, it should always be created
 	// after all resources in module consul_2
 	requireBefore(t, "module.consul_2.resource.container.consul", "output.module2_container_resources_cpu", calls)
+
+	// the module consul_3 has a hard coded dependency on module_1, it should only be created after all
+	// resources in module_1 have been created
+	requireBefore(t, "module.consul_1.resource.container.consul", "module.consul_3.resource.container.consul", calls)
 	requireBefore(t, "module.consul_1.resource.container.consul", "module.consul_1.output.container_resources_cpu", calls)
 }
 
@@ -898,8 +916,13 @@ func TestParserStopsParseOnCallbackError(t *testing.T) {
 		// consul_1 and its resources depend on base, so they should not be in the list
 		require.NotContains(t, call, "module.consul_1.resource")
 		require.NotContains(t, call, "module.consul_1.output")
+		// consul_3 depends on consul_1, so its resources/outputs should not be processed
+		// But variables can be processed before the error since they don't have dependencies
+		require.NotContains(t, call, "module.consul_3.resource")
+		require.NotContains(t, call, "module.consul_3.output")
 		// outputs that depend on consul_1 should not be processed
 		require.NotContains(t, call, "output.module1_")
+		require.NotContains(t, call, "output.module3_")
 	}
 
 	// consul_2 doesn't depend on base, so it MAY be processed (depending on timing)
