@@ -2,6 +2,8 @@ module go.instruqt.com/hclconfig
 
 go 1.24.6
 
+toolchain go1.24.11
+
 require (
 	github.com/creasty/defaults v1.8.0
 	github.com/flytam/filenamify v1.2.0

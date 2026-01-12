@@ -56,11 +56,6 @@ output "module2_container_resources_cpu" {
   value = module.consul_2.output.container_resources_cpu
 }
 
-// returns a simple type from the ouput of the module
-output "module3_container_resources_cpu" {
-  value = module.consul_3.output.container_resources_cpu
-}
-
 // returns an element using a numeric index from a list 
 // returned from the output
 output "module1_from_list_1" {

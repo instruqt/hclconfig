@@ -1664,22 +1664,3 @@ func validateResourceName(name string) error {
 
 	return nil
 }
-
-func validateLabel(label string, blockType string) error {
-	// Labels must not be purely numeric to avoid ambiguity with numeric index access
-	// For example, user "0" would conflict with user[0] (index access)
-	purelyNumeric := `^[0-9]+$`
-	r, _ := regexp.Compile(purelyNumeric)
-	if r.MatchString(label) {
-		return fmt.Errorf("invalid %s label %q: labels cannot be purely numeric (conflicts with index access)", blockType, label)
-	}
-
-	// Labels can only contain alphanumeric characters, underscores, and hyphens
-	invalidChars := `[^0-9a-zA-Z_-]`
-	r, _ = regexp.Compile(invalidChars)
-	if r.MatchString(label) {
-		return fmt.Errorf("invalid %s label %q: labels can only contain the characters 0-9 a-z A-Z _ -", blockType, label)
-	}
-
-	return nil
-}
