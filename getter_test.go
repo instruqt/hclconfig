@@ -33,10 +33,12 @@ func setupMockGetter(t *testing.T, err error) (Getter, *[]getterCall) {
 	return g, calls
 }
 
-func TestGetterDoesNothingWhenFolderExistsAndIgnoreCacheFalse(t *testing.T) {
+func TestGetterDoesNothingWhenFolderExistsWithContentsAndIgnoreCacheFalse(t *testing.T) {
 	dest := t.TempDir()
 	downloadPath := path.Join(dest, "github.com_test")
 	os.MkdirAll(downloadPath, os.ModePerm)
+	// Create a file so the cache directory is not empty
+	os.WriteFile(path.Join(downloadPath, "test.hcl"), []byte("# test"), os.ModePerm)
 
 	g, calls := setupMockGetter(t, nil)
 
@@ -44,6 +46,20 @@ func TestGetterDoesNothingWhenFolderExistsAndIgnoreCacheFalse(t *testing.T) {
 	require.NoError(t, err)
 
 	require.Len(t, *calls, 0)
+}
+
+func TestGetterRedownloadsWhenFolderExistsButEmpty(t *testing.T) {
+	dest := t.TempDir()
+	downloadPath := path.Join(dest, "github.com_test")
+	os.MkdirAll(downloadPath, os.ModePerm)
+	// Empty directory should trigger re-download
+
+	g, calls := setupMockGetter(t, nil)
+
+	_, err := g.Get("github.com/test", dest, false)
+	require.NoError(t, err)
+
+	require.Len(t, *calls, 1)
 }
 
 func TestGetterCallsGetWhenFolderExistsAndIgnoreCacheTrue(t *testing.T) {

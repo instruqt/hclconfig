@@ -10,13 +10,13 @@ import (
 	"time"
 
 	"github.com/hashicorp/hcl/v2"
+	"github.com/stretchr/testify/require"
+	"github.com/zclconf/go-cty/cty"
 	"go.instruqt.com/hclconfig/errors"
 	"go.instruqt.com/hclconfig/resources"
 	"go.instruqt.com/hclconfig/test_fixtures/embedded"
 	"go.instruqt.com/hclconfig/test_fixtures/structs"
 	"go.instruqt.com/hclconfig/types"
-	"github.com/stretchr/testify/require"
-	"github.com/zclconf/go-cty/cty"
 )
 
 func setupParser(t *testing.T, options ...*ParserOptions) *Parser {
@@ -840,12 +840,6 @@ func TestParserProcessesResourcesInCorrectOrder(t *testing.T) {
 	// -- -- -- -- module.consul_1.resource.output.container_name
 	// -- -- -- -- module.consul_1.resource.output.container_resources_cpu
 	// -- -- -- -- -- resource.output.module_1_container_resources_cpu
-	// -- -- -- -- -- -- resource.module.consul_3
-	// -- -- -- -- -- -- -- module.consul_3.resource.network.onprem
-	// -- -- -- -- -- -- -- -- module.consul_3.resource.container.consul
-	// -- -- -- -- -- -- -- -- -- module.consul_3.resource.output.container_name
-	// -- -- -- -- -- -- -- -- -- module.consul_3.resource.output.container_resources_cpu
-	// -- -- -- -- -- -- -- -- -- -- resource.output.module_1_container_resources_cpu
 	// module.consul_2
 	// -- module.consul_2.resource.network.onprem
 	// -- -- module.consul_2.resource.container.consul
@@ -878,7 +872,7 @@ func TestParserProcessesResourcesInCorrectOrder(t *testing.T) {
 	// the module consul_3 has a hard coded dependency on module_1, it should only be created after all
 	// resources in module_1 have been created
 	requireBefore(t, "module.consul_1.resource.container.consul", "module.consul_3.resource.container.consul", calls)
-	requireBefore(t, "module.consul_1.resource.cotnainer.consul", "module.consul_1.output.container_resources_cpu", calls)
+	requireBefore(t, "module.consul_1.resource.container.consul", "module.consul_1.output.container_resources_cpu", calls)
 }
 
 func TestParserStopsParseOnCallbackError(t *testing.T) {
@@ -1368,4 +1362,53 @@ func TestParseParsesToResourceBase(t *testing.T) {
 
 	o1 := r.(*resources.Output)
 	require.Equal(t, "This is the name of the container", o1.Description)
+}
+
+func TestValidateLabelRejectsPurelyNumeric(t *testing.T) {
+	// Purely numeric labels should be rejected to avoid conflicts with index access
+	err := validateLabel("0", "user")
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "purely numeric")
+
+	err = validateLabel("123", "user")
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "purely numeric")
+
+	err = validateLabel("999", "permission")
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "purely numeric")
+}
+
+func TestValidateLabelAcceptsValidLabels(t *testing.T) {
+	// Valid labels should pass
+	err := validateLabel("admin", "user")
+	require.NoError(t, err)
+
+	err = validateLabel("user-1", "user")
+	require.NoError(t, err)
+
+	err = validateLabel("user_1", "user")
+	require.NoError(t, err)
+
+	err = validateLabel("1admin", "user")
+	require.NoError(t, err)
+
+	err = validateLabel("admin1", "user")
+	require.NoError(t, err)
+
+	err = validateLabel("a0", "user")
+	require.NoError(t, err)
+}
+
+func TestValidateLabelRejectsInvalidCharacters(t *testing.T) {
+	// Labels with invalid characters should be rejected
+	err := validateLabel("user.name", "user")
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "can only contain")
+
+	err = validateLabel("user@domain", "user")
+	require.Error(t, err)
+
+	err = validateLabel("user name", "user")
+	require.Error(t, err)
 }

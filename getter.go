@@ -66,10 +66,14 @@ func (g *GoGetter) Get(src, dest string, ignoreCache bool) (string, error) {
 
 	downloadPath := path.Join(dest, output)
 
-	// check to see if the destination exists
-	_, err = os.Stat(downloadPath)
-	if err == nil && !ignoreCache {
-		return downloadPath, nil
+	// check to see if the destination exists and has contents
+	// (an empty directory could be left behind from a failed download)
+	info, err := os.Stat(downloadPath)
+	if err == nil && !ignoreCache && info.IsDir() {
+		entries, _ := os.ReadDir(downloadPath)
+		if len(entries) > 0 {
+			return downloadPath, nil
+		}
 	}
 
 	err = g.get(src, downloadPath, pwd)
