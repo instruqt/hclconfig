@@ -103,4 +103,4 @@ require (
 )
 
 //replace github.com/zclconf/go-cty => /home/nicj/go/src/github.com/jumppad-labs/go-cty
-replace github.com/zclconf/go-cty => github.com/jumppad-labs/go-cty v0.0.0-20230804061424-9e985cb751f6
+replace github.com/zclconf/go-cty => github.com/jumppad-labs/go-cty v0.0.0-20260330202817-f6441704632b
