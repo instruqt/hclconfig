@@ -70,6 +70,10 @@ func HashString(in string) string {
 // Rock the cast var
 // Rock the cast var
 func castVar(v cty.Value) any {
+	if v.IsNull() {
+		return nil
+	}
+
 	if v.Type() == cty.String {
 		return v.AsString()
 	} else if v.Type() == cty.Bool {
@@ -81,17 +85,9 @@ func castVar(v cty.Value) any {
 		val, _ := v.AsBigFloat().Float64()
 		return val
 	} else if v.Type().IsObjectType() || v.Type().IsMapType() {
-		if v.IsNull() {
-			return nil
-		}
-
 		return ParseVars(v.AsValueMap())
 	} else if v.Type().IsTupleType() || v.Type().IsListType() {
 		vars := []any{}
-
-		if v.IsNull() {
-			return vars
-		}
 
 		i := v.ElementIterator()
 
