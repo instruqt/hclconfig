@@ -15,12 +15,12 @@ import (
 	"github.com/hashicorp/hcl/v2/gohcl"
 	"github.com/hashicorp/hcl/v2/hclparse"
 	"github.com/hashicorp/hcl/v2/hclsyntax"
+	"github.com/zclconf/go-cty/cty"
+	"github.com/zclconf/go-cty/cty/function"
 	"go.instruqt.com/hclconfig/errors"
 	"go.instruqt.com/hclconfig/registry"
 	"go.instruqt.com/hclconfig/resources"
 	"go.instruqt.com/hclconfig/types"
-	"github.com/zclconf/go-cty/cty"
-	"github.com/zclconf/go-cty/cty/function"
 )
 
 var rootContext *hcl.EvalContext
@@ -452,8 +452,13 @@ func (p *Parser) parseVariablesInFile(ctx *hcl.EvalContext, file string, c *Conf
 			// add the variable to the context
 			c.AppendResource(v)
 
-			val, _ := v.Default.(*hcl.Attribute).Expr.Value(ctx)
-			setContextVariableIfMissing(ctx, v.Meta.Name, val)
+			// default is optional. When it is omitted gohcl leaves a synthesized
+			// expression rather than an attribute, and there is no value to seed
+			// the context with — the variable has to be supplied by the caller.
+			if attr, ok := v.Default.(*hcl.Attribute); ok {
+				val, _ := attr.Expr.Value(ctx)
+				setContextVariableIfMissing(ctx, v.Meta.Name, val)
+			}
 		}
 	}
 
@@ -1281,7 +1286,7 @@ func decodeBody(ctx *hcl.EvalContext, config *Config, path string, b *hclsyntax.
 			pe.Column = b.Body.SrcRange.Start.Column
 			pe.Line = b.Body.SrcRange.Start.Line
 			pe.Filename = b.Body.SrcRange.Filename
-			pe.Message = fmt.Sprintf("unable to decode body, %s", err)
+			pe.Message = fmt.Sprintf("unable to decode body, %s", diag.Error())
 			pe.Level = errors.ParserErrorLevelError
 
 			// if ignore errors is false return the parsing error, otherwise
