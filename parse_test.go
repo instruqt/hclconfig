@@ -1022,18 +1022,11 @@ func TestParserRejectsInvalidResourceName(t *testing.T) {
 	err = validateResourceName("my*resource")
 	require.Error(t, err)
 
-	// should reject reserved names
-	err = validateResourceName("variable")
-	require.Error(t, err)
-
-	err = validateResourceName("output")
-	require.Error(t, err)
-
-	err = validateResourceName("resource")
-	require.Error(t, err)
-
-	err = validateResourceName("module")
-	require.Error(t, err)
+	// a resource is reached through its own prefix — resource.TYPE.NAME — so a
+	// name that reads like a keyword shadows nothing
+	for _, name := range []string{"variable", "output", "resource", "module"} {
+		require.NoError(t, validateResourceName(name), name)
+	}
 
 	// should be valid
 	err = validateResourceName("0232module")
@@ -1044,6 +1037,20 @@ func TestParserRejectsInvalidResourceName(t *testing.T) {
 
 	err = validateResourceName("my_Module")
 	require.NoError(t, err)
+}
+
+// A module's name sits inside the module path of every id below it, and the
+// path ends at the first keyword, so a module named after one cannot be found
+// again.
+func TestParserRejectsReservedModuleName(t *testing.T) {
+	for _, name := range []string{"variable", "output", "resource", "module"} {
+		require.Error(t, validateModuleName(name), name)
+	}
+
+	require.NoError(t, validateModuleName("first"))
+
+	// the character rules still apply
+	require.Error(t, validateModuleName("my module"))
 }
 
 func TestParserGeneratesChecksums(t *testing.T) {

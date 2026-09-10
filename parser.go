@@ -640,7 +640,7 @@ func (p *Parser) parseModule(ctx *hcl.EvalContext, c *Config, file string, b *hc
 	}
 
 	name := b.Labels[0]
-	if err := validateResourceName(name); err != nil {
+	if err := validateModuleName(name); err != nil {
 		de := &errors.ParserError{}
 		de.Line = b.TypeRange.Start.Line
 		de.Column = b.TypeRange.Start.Column
@@ -857,7 +857,7 @@ func (p *Parser) parseResource(ctx *hcl.EvalContext, c *Config, file string, b *
 			de.Line = b.TypeRange.Start.Line
 			de.Column = b.TypeRange.Start.Column
 			de.Filename = file
-			de.Message = de.Error()
+			de.Message = err.Error()
 			de.Level = errors.ParserErrorLevelError
 
 			return de
@@ -1633,11 +1633,11 @@ func ensureAbsolute(path, file string) string {
 	return filepath.Clean(fp)
 }
 
+// validateResourceName checks a label that is only ever reached through its own
+// kind's prefix — resource.TYPE.NAME, local.NAME, output.NAME — so a name that
+// happens to be a keyword shadows nothing. Module labels are stricter, see
+// validateModuleName.
 func validateResourceName(name string) error {
-	if name == "resource" || name == "module" || name == "output" || name == "variable" {
-		return fmt.Errorf("invalid resource name %s, resources can not use the reserved names [resource, module, output, variable]", name)
-	}
-
 	invalidChars := `^[0-9]*$`
 	r, _ := regexp.Compile(invalidChars)
 	if r.MatchString(name) {
@@ -1651,6 +1651,18 @@ func validateResourceName(name string) error {
 	}
 
 	return nil
+}
+
+// validateModuleName rejects the keywords an id is read by. A module's name
+// becomes part of the module path in an id — module.NAME.resource.TYPE.NAME —
+// which is scanned for the keyword that ends the path, so a module named after
+// one leaves nothing to find (see ParseFQRN).
+func validateModuleName(name string) error {
+	if name == "resource" || name == "module" || name == "output" || name == "variable" {
+		return fmt.Errorf("invalid module name %s, modules can not use the reserved names [resource, module, output, variable]", name)
+	}
+
+	return validateResourceName(name)
 }
 
 func validateLabel(label string, blockType string) error {
