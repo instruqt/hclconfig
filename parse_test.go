@@ -91,6 +91,31 @@ func TestParseFileProcessesResources(t *testing.T) {
 	require.NotNil(t, r)
 }
 
+func TestParseDependsOnAcceptsStringsAndBareReferences(t *testing.T) {
+	absoluteFolderPath, err := filepath.Abs("./test_fixtures/deps/depends_on.hcl")
+	require.NoError(t, err)
+
+	p := setupParser(t)
+
+	c, err := p.ParseFile(absoluteFolderPath)
+	require.NoError(t, err)
+
+	quoted, err := c.FindResource("resource.container.quoted")
+	require.NoError(t, err)
+	require.Equal(t, []string{"resource.network.main"}, quoted.GetDependencies())
+
+	bare, err := c.FindResource("resource.container.bare")
+	require.NoError(t, err)
+	require.Equal(t, []string{"resource.network.main"}, bare.GetDependencies())
+
+	mixed, err := c.FindResource("resource.container.mixed")
+	require.NoError(t, err)
+	require.ElementsMatch(t,
+		[]string{"resource.network.main", "resource.container.quoted"},
+		mixed.GetDependencies(),
+	)
+}
+
 func TestParseFileCallsParseFunction(t *testing.T) {
 	absoluteFolderPath, err := filepath.Abs("./test_fixtures/simple/container.hcl")
 	if err != nil {

@@ -573,24 +573,61 @@ func setDependsOn(ctx *hcl.EvalContext, r types.Resource, b *hclsyntax.Body, dep
 	}
 
 	if attr, ok := b.Attributes["depends_on"]; ok {
-		dependsOnVal, diags := attr.Expr.Value(ctx)
+		// depends_on accepts both quoted strings ("resource.type.name") and
+		// bare references (resource.type.name). Iterate the list elements
+		// rather than evaluating the whole expression so bare references are
+		// read structurally, not resolved against a context where the target
+		// resource is not yet present.
+		elems, diags := hcl.ExprList(attr.Expr)
 		if diags.HasErrors() {
 			return fmt.Errorf("unable to read depends_on attribute: %s", diags.Error())
 		}
 
-		// depends on is a slice of string
-		dependsOnSlice := dependsOnVal.AsValueSlice()
-		for _, d := range dependsOnSlice {
-			_, err := resources.ParseFQRN(d.AsString())
+		for _, elem := range elems {
+			dep, err := dependsOnReference(ctx, elem)
 			if err != nil {
-				return fmt.Errorf("invalid dependency %s, %s", d.AsString(), err)
+				return err
 			}
 
-			r.AddDependency(d.AsString())
+			if _, err := resources.ParseFQRN(dep); err != nil {
+				return fmt.Errorf("invalid dependency %s, %s", dep, err)
+			}
+
+			r.AddDependency(dep)
 		}
 	}
 
 	return nil
+}
+
+// dependsOnReference resolves a single depends_on list element to its fully
+// qualified resource name. A bare reference (resource.type.name) is read from
+// its traversal so it is never evaluated against a context that does not yet
+// contain the target; a quoted string is evaluated as a literal.
+func dependsOnReference(ctx *hcl.EvalContext, expr hcl.Expression) (string, error) {
+	if st, ok := expr.(*hclsyntax.ScopeTraversalExpr); ok {
+		ref, err := processScopeTraversal(st)
+		if err != nil {
+			return "", fmt.Errorf("unable to read depends_on attribute: %s", err)
+		}
+
+		if ref == "" {
+			return "", fmt.Errorf("invalid dependency at %s, references must start with resource, module, local, or output", st.SrcRange)
+		}
+
+		return ref, nil
+	}
+
+	val, diags := expr.Value(ctx)
+	if diags.HasErrors() {
+		return "", fmt.Errorf("unable to read depends_on attribute: %s", diags.Error())
+	}
+
+	if val.Type() != cty.String {
+		return "", fmt.Errorf("invalid dependency, expected a string or resource reference")
+	}
+
+	return val.AsString(), nil
 }
 
 func (p *Parser) parseModule(ctx *hcl.EvalContext, c *Config, file string, b *hclsyntax.Block, moduleName string, dependsOn []string) []error {
