@@ -5,10 +5,33 @@ import (
 	"fmt"
 	"os"
 	"path"
+	"strings"
 
 	"github.com/flytam/filenamify"
 	getter "github.com/hashicorp/go-getter"
 )
+
+// ModuleGetter fetches a module named by address rather than by path or URL,
+// and returns the local directory holding its files. It is handed the module
+// block's source and version as written, so a getter that resolves version
+// constraints itself sees what the author asked for.
+type ModuleGetter func(source, version string) (string, error)
+
+// isModuleAddress reports whether source names a module by address — two
+// segments, "team/module" — rather than by URL. A dot in the first segment
+// makes it a host, which go-getter fetches instead.
+func isModuleAddress(source string) bool {
+	if strings.Contains(source, "://") {
+		return false
+	}
+
+	parts := strings.Split(source, "/")
+	if len(parts) != 2 || parts[0] == "" || parts[1] == "" {
+		return false
+	}
+
+	return !strings.Contains(parts[0], ".")
+}
 
 type Getter interface {
 	// Get fetches the source files from src and downloads them to the
