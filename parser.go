@@ -18,7 +18,6 @@ import (
 	"github.com/zclconf/go-cty/cty"
 	"github.com/zclconf/go-cty/cty/function"
 	"go.instruqt.com/hclconfig/errors"
-	"go.instruqt.com/hclconfig/registry"
 	"go.instruqt.com/hclconfig/resources"
 	"go.instruqt.com/hclconfig/types"
 )
@@ -43,10 +42,10 @@ type ParserOptions struct {
 	VariableEnvPrefix string
 	// location of any downloaded modules
 	ModuleCache string
-	// default registry to use when fetching modules
-	DefaultRegistry string
-	// credentials to use with the registries
-	RegistryCredentials map[string]string
+	// ModuleGetter fetches modules named by address, which the parser cannot
+	// reach on its own. Modules named by url are fetched with go-getter and
+	// need no getter; without one, an address is a parse error.
+	ModuleGetter ModuleGetter
 	// Callback executed when the parser reads a resource stanza, callbacks are
 	// executed based on a directed acyclic graph. If resource 'a' references
 	// a property defined in resource 'b', i.e 'resource.a.myproperty' then the
@@ -79,12 +78,9 @@ func DefaultOptions() *ParserOptions {
 	cacheDir = filepath.Join(cacheDir, ".hclconfig", "cache")
 	os.MkdirAll(cacheDir, os.ModePerm)
 
-	registryCredentials := map[string]string{}
-
 	return &ParserOptions{
-		ModuleCache:         cacheDir,
-		VariableEnvPrefix:   "HCL_VAR_",
-		RegistryCredentials: registryCredentials,
+		ModuleCache:       cacheDir,
+		VariableEnvPrefix: "HCL_VAR_",
 	}
 }
 
@@ -732,7 +728,7 @@ func (p *Parser) parseModule(ctx *hcl.EvalContext, c *Config, file string, b *hc
 	rt.(*resources.Module).Source = src.AsString()
 	rt.(*resources.Module).Version = version
 
-	// src could be a registry url, github repository or a relative folder
+	// src could be a module address, a url, or a relative folder
 	// first check if it is a folder, we need to make it absolute relative to the current file
 	dir := path.Dir(file)
 	moduleSrc := path.Join(dir, src.AsString())
@@ -741,101 +737,51 @@ func (p *Parser) parseModule(ctx *hcl.EvalContext, c *Config, file string, b *hc
 	if serr != nil || !fi.IsDir() {
 		moduleURL := src.AsString()
 
-		parts := strings.Split(moduleURL, "/")
+		// A module named by address is content the parser cannot reach on its
+		// own: whoever configured the parser knows how to fetch it. Anything
+		// else is a location go-getter understands.
+		if isModuleAddress(moduleURL) {
+			if p.options.ModuleGetter == nil {
+				de := &errors.ParserError{}
+				de.Line = b.TypeRange.Start.Line
+				de.Column = b.TypeRange.Start.Column
+				de.Filename = file
+				de.Level = errors.ParserErrorLevelError
+				de.Message = fmt.Sprintf(`module "%s" is named by address, but this parser has no module getter configured`, moduleURL)
 
-		// if there are 2 parts (namespace, module), check if the default registry is set
-		if len(parts) == 2 && p.options.DefaultRegistry != "" {
-			parts = append([]string{p.options.DefaultRegistry}, parts...)
-		}
-
-		// if there are 3 parts (registry, namespace, module) it could be a registry
-		if len(parts) == 3 {
-			host := parts[0]
-			namespace := parts[1]
-			name := parts[2]
-
-			// check if the registry has credentials
-			var token string
-			if _, ok := p.options.RegistryCredentials[host]; ok {
-				token = p.options.RegistryCredentials[host]
+				return []error{de}
 			}
 
-			// if we can't create a registry, it is not a module registry so we can ignore the error
-			r, err := registry.New(host, token)
-			if err == nil {
-				// get all available versions of the module from the registry
-				// check if the requested version exists
-				versions, err := r.GetModuleVersions(namespace, name)
-				if err != nil {
-					de := &errors.ParserError{}
-					de.Line = b.TypeRange.Start.Line
-					de.Column = b.TypeRange.Start.Column
-					de.Filename = file
-					de.Level = errors.ParserErrorLevelError
-					de.Message = err.Error()
+			mp, err := p.options.ModuleGetter(moduleURL, version)
+			if err != nil {
+				de := &errors.ParserError{}
+				de.Line = b.TypeRange.Start.Line
+				de.Column = b.TypeRange.Start.Column
+				de.Filename = file
+				de.Level = errors.ParserErrorLevelError
+				de.Message = fmt.Sprintf(`unable to fetch module "%s": %s`, moduleURL, err)
 
-					return []error{de}
-				}
-
-				// if no version is set, use latest
-				if version == "latest" {
-					version = versions.Latest
-				} else {
-					// otherwise check the version exists
-					versionExists := false
-					for _, v := range versions.Versions {
-						if v.Version == version {
-							versionExists = true
-							break
-						}
-					}
-
-					if !versionExists {
-						de := &errors.ParserError{}
-						de.Line = b.TypeRange.Start.Line
-						de.Column = b.TypeRange.Start.Column
-						de.Filename = file
-						de.Level = errors.ParserErrorLevelError
-						de.Message = fmt.Sprintf(`version "%s" does not exist for module "%s/%s" in registry "%s"`, version, namespace, name, host)
-
-						return []error{de}
-					}
-				}
-
-				module, err := r.GetModule(namespace, name, version)
-				if err == nil {
-					// if we get back a module url from the registry,
-					// set the source to the returned url
-					moduleURL = module.DownloadURL
-				} else {
-					de := &errors.ParserError{}
-					de.Line = b.TypeRange.Start.Line
-					de.Column = b.TypeRange.Start.Column
-					de.Filename = file
-					de.Level = errors.ParserErrorLevelError
-					de.Message = fmt.Sprintf(`unable to fetch module "%s/%s" from registry "%s": %s`, namespace, name, host, err)
-
-					return []error{de}
-				}
+				return []error{de}
 			}
+
+			moduleSrc = mp
+		} else {
+			gg := NewGoGetter()
+
+			mp, err := gg.Get(moduleURL, p.options.ModuleCache, false)
+			if err != nil {
+				de := &errors.ParserError{}
+				de.Line = b.TypeRange.Start.Line
+				de.Column = b.TypeRange.Start.Column
+				de.Filename = file
+				de.Level = errors.ParserErrorLevelError
+				de.Message = fmt.Sprintf(`unable to fetch remote module "%s": %s`, moduleURL, err)
+
+				return []error{de}
+			}
+
+			moduleSrc = mp
 		}
-
-		// is not a directory fetch from source using go getter
-		gg := NewGoGetter()
-
-		mp, err := gg.Get(moduleURL, p.options.ModuleCache, false)
-		if err != nil {
-			de := &errors.ParserError{}
-			de.Line = b.TypeRange.Start.Line
-			de.Column = b.TypeRange.Start.Column
-			de.Filename = file
-			de.Level = errors.ParserErrorLevelError
-			de.Message = fmt.Sprintf(`unable to fetch remote module "%s": %s`, src.AsString(), err)
-
-			return []error{de}
-		}
-
-		moduleSrc = mp
 	}
 
 	// create a new config and add the resources later
