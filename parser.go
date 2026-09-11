@@ -429,6 +429,31 @@ func (p *Parser) parseVariablesInFile(ctx *hcl.EvalContext, file string, c *Conf
 	for _, b := range body.Blocks {
 		switch b.Type {
 		case resources.TypeVariable:
+			// A variable is named by its one label. Reading that label without
+			// checking it is there crashes the parser on a block an author is
+			// part way through writing.
+			if len(b.Labels) != 1 || b.Labels[0] == "" {
+				de := &errors.ParserError{}
+				de.Line = b.TypeRange.Start.Line
+				de.Column = b.TypeRange.Start.Column
+				de.Filename = file
+				de.Level = errors.ParserErrorLevelError
+				de.Message = `invalid formatting for 'variable' stanza, variables should have a name, i.e. 'variable "name" {}'`
+
+				return de
+			}
+
+			if err := validateResourceName(b.Labels[0]); err != nil {
+				de := &errors.ParserError{}
+				de.Line = b.TypeRange.Start.Line
+				de.Column = b.TypeRange.Start.Column
+				de.Filename = file
+				de.Level = errors.ParserErrorLevelError
+				de.Message = err.Error()
+
+				return de
+			}
+
 			r, _ := p.registeredTypes.CreateResource(resources.TypeVariable, b.Labels[0])
 			v := r.(*resources.Variable)
 
@@ -857,7 +882,7 @@ func (p *Parser) parseResource(ctx *hcl.EvalContext, c *Config, file string, b *
 			de.Line = b.TypeRange.Start.Line
 			de.Column = b.TypeRange.Start.Column
 			de.Filename = file
-			de.Message = de.Error()
+			de.Message = err.Error()
 			de.Level = errors.ParserErrorLevelError
 
 			return de
@@ -1633,11 +1658,12 @@ func ensureAbsolute(path, file string) string {
 	return filepath.Clean(fp)
 }
 
+// validateResourceName checks the characters a label is made of. Every label is
+// read through the prefix of its own kind — resource.TYPE.NAME, local.NAME,
+// module.NAME — and a module path is read back by finding the keyword that ends
+// it, so a label that reads like a keyword shadows nothing. ParseFQRN resolves
+// module.module.resource.container.app the same as module.mod1.resource.container.app.
 func validateResourceName(name string) error {
-	if name == "resource" || name == "module" || name == "output" || name == "variable" {
-		return fmt.Errorf("invalid resource name %s, resources can not use the reserved names [resource, module, output, variable]", name)
-	}
-
 	invalidChars := `^[0-9]*$`
 	r, _ := regexp.Compile(invalidChars)
 	if r.MatchString(name) {

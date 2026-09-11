@@ -1022,18 +1022,11 @@ func TestParserRejectsInvalidResourceName(t *testing.T) {
 	err = validateResourceName("my*resource")
 	require.Error(t, err)
 
-	// should reject reserved names
-	err = validateResourceName("variable")
-	require.Error(t, err)
-
-	err = validateResourceName("output")
-	require.Error(t, err)
-
-	err = validateResourceName("resource")
-	require.Error(t, err)
-
-	err = validateResourceName("module")
-	require.Error(t, err)
+	// a resource is reached through its own prefix — resource.TYPE.NAME — so a
+	// name that reads like a keyword shadows nothing
+	for _, name := range []string{"variable", "output", "resource", "module"} {
+		require.NoError(t, validateResourceName(name), name)
+	}
 
 	// should be valid
 	err = validateResourceName("0232module")
@@ -1044,6 +1037,45 @@ func TestParserRejectsInvalidResourceName(t *testing.T) {
 
 	err = validateResourceName("my_Module")
 	require.NoError(t, err)
+}
+
+// A module's name sits inside the module path of every id below it, so a module
+// named after a keyword is the case with the most reason to be ambiguous. It is
+// not: the path is read back by finding the keyword that ends it, and the last
+// one ends it.
+func TestParseFQRNReadsKeywordNames(t *testing.T) {
+	tests := map[string]struct {
+		module   string
+		typeName string
+		resource string
+	}{
+		"module.mod1.resource.container.app":   {module: "mod1", typeName: "container", resource: "app"},
+		"module.module.resource.container.app": {module: "module", typeName: "container", resource: "app"},
+		"module.output.output.foo":             {module: "output", typeName: "output", resource: "foo"},
+		"module.a.module.resource.container.app": {
+			module: "a.module", typeName: "container", resource: "app",
+		},
+		"module.module.module.resource.container.app": {
+			module: "module.module", typeName: "container", resource: "app",
+		},
+		// a module's own reference, which depends_on is written with
+		"module.module": {typeName: "module", resource: "module"},
+		"module.a.output": {
+			module: "a", typeName: "module", resource: "output",
+		},
+		"resource.container.module": {typeName: "container", resource: "module"},
+	}
+
+	for fqrn, want := range tests {
+		t.Run(fqrn, func(t *testing.T) {
+			got, err := resources.ParseFQRN(fqrn)
+			require.NoError(t, err)
+
+			require.Equal(t, want.module, got.Module)
+			require.Equal(t, want.typeName, got.Type)
+			require.Equal(t, want.resource, got.Resource)
+		})
+	}
 }
 
 func TestParserGeneratesChecksums(t *testing.T) {
