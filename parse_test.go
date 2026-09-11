@@ -1039,18 +1039,43 @@ func TestParserRejectsInvalidResourceName(t *testing.T) {
 	require.NoError(t, err)
 }
 
-// A module's name sits inside the module path of every id below it, and the
-// path ends at the first keyword, so a module named after one cannot be found
-// again.
-func TestParserRejectsReservedModuleName(t *testing.T) {
-	for _, name := range []string{"variable", "output", "resource", "module"} {
-		require.Error(t, validateModuleName(name), name)
+// A module's name sits inside the module path of every id below it, so a module
+// named after a keyword is the case with the most reason to be ambiguous. It is
+// not: the path is read back by finding the keyword that ends it, and the last
+// one ends it.
+func TestParseFQRNReadsKeywordNames(t *testing.T) {
+	tests := map[string]struct {
+		module   string
+		typeName string
+		resource string
+	}{
+		"module.mod1.resource.container.app":   {module: "mod1", typeName: "container", resource: "app"},
+		"module.module.resource.container.app": {module: "module", typeName: "container", resource: "app"},
+		"module.output.output.foo":             {module: "output", typeName: "output", resource: "foo"},
+		"module.a.module.resource.container.app": {
+			module: "a.module", typeName: "container", resource: "app",
+		},
+		"module.module.module.resource.container.app": {
+			module: "module.module", typeName: "container", resource: "app",
+		},
+		// a module's own reference, which depends_on is written with
+		"module.module": {typeName: "module", resource: "module"},
+		"module.a.output": {
+			module: "a", typeName: "module", resource: "output",
+		},
+		"resource.container.module": {typeName: "container", resource: "module"},
 	}
 
-	require.NoError(t, validateModuleName("first"))
+	for fqrn, want := range tests {
+		t.Run(fqrn, func(t *testing.T) {
+			got, err := resources.ParseFQRN(fqrn)
+			require.NoError(t, err)
 
-	// the character rules still apply
-	require.Error(t, validateModuleName("my module"))
+			require.Equal(t, want.module, got.Module)
+			require.Equal(t, want.typeName, got.Type)
+			require.Equal(t, want.resource, got.Resource)
+		})
+	}
 }
 
 func TestParserGeneratesChecksums(t *testing.T) {
