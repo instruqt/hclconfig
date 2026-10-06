@@ -309,7 +309,7 @@ func createCallback(c *Config, wf WalkCallback) func(v dag.Vertex) (diags dag.Di
 					"Invalid block",
 				}
 
-				if slices.Contains(errorSummaries, err.Summary) {
+				if slices.Contains(errorSummaries, err.Summary) || duplicateBlockSummary.MatchString(err.Summary) {
 					parserErr.Level = errors.ParserErrorLevelError
 					return diags.Append(parserErr)
 				}
@@ -734,6 +734,10 @@ func validateAttribute(v reflect.Value, t reflect.Type, properties []string) err
 
 	return fmt.Errorf(`unable to find dependent attribute: "%s"`, properties[0])
 }
+
+// duplicateBlockSummary matches the gohcl diagnostic for a single block that
+// is defined more than once, such as "Duplicate health_check block".
+var duplicateBlockSummary = regexp.MustCompile(`^Duplicate \S+ block$`)
 
 func createParserError(r types.Resource, msg string) *errors.ParserError {
 	pe := &errors.ParserError{}
