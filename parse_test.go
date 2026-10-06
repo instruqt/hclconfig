@@ -1281,6 +1281,29 @@ func TestParseFileReturnsConfigErrorWhenResourceContainsInvalidInterpolation(t *
 	require.Equal(t, pe.Level, errors.ParserErrorLevelError)
 }
 
+func TestParseFileReturnsConfigErrorWhenSingleBlockIsDuplicated(t *testing.T) {
+	f, pathErr := filepath.Abs("./test_fixtures/invalid/duplicate_block.hcl")
+	if pathErr != nil {
+		t.Fatal(pathErr)
+	}
+
+	p := setupParser(t)
+
+	_, err := p.ParseFile(f)
+	require.IsType(t, err, &errors.ConfigError{})
+
+	ce := err.(*errors.ConfigError)
+	require.Len(t, ce.Errors, 1)
+
+	require.True(t, ce.ContainsErrors())
+
+	pe := ce.Errors[0].(*errors.ParserError)
+	require.Equal(t, errors.ParserErrorLevelError, pe.Level)
+	require.Equal(t, 1, pe.Line)
+	require.Contains(t, pe.Message, "duplicate_block.hcl:8,3-12: Duplicate resources block")
+	require.Contains(t, pe.Message, "duplicate_block.hcl:4,3-12")
+}
+
 func TestParseFileReturnsConfigErrorWhenInvalidFileFails(t *testing.T) {
 	f, pathErr := filepath.Abs("./test_fixtures/invalid/notexist.hcl")
 	if pathErr != nil {
