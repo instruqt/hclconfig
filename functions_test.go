@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"testing"
 
 	"go.instruqt.com/hclconfig/test_fixtures/structs"
@@ -257,4 +258,14 @@ func TestParseProcessesCustomFunctions(t *testing.T) {
 	cont := r.(*structs.Container)
 
 	require.Equal(t, "42", cont.Env["len"])
+}
+
+func TestFunctionNamesListsDefaultsAndRegisteredFunctions(t *testing.T) {
+	p := NewParser(nil)
+	require.NoError(t, p.RegisterFunction("custom", func(a string) (string, error) { return a, nil }))
+
+	names := p.FunctionNames()
+
+	require.True(t, slices.IsSorted(names))
+	require.Subset(t, names, []string{"env", "file", "custom"})
 }

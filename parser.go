@@ -3,11 +3,13 @@ package hclconfig
 import (
 	"encoding/json"
 	"fmt"
+	"maps"
 	"os"
 	"path"
 	"path/filepath"
 	"regexp"
 	"runtime"
+	"slices"
 	"strconv"
 	"strings"
 
@@ -120,6 +122,11 @@ func (p *Parser) RegisterFunction(name string, f any) error {
 	p.registeredFunctions[name] = ctyFunc
 
 	return nil
+}
+
+// FunctionNames lists, sorted, every function a parsed config may call.
+func (p *Parser) FunctionNames() []string {
+	return slices.Sorted(maps.Keys(buildContext("", p.registeredFunctions).Functions))
 }
 
 // ParseDirectory parses all resources in the given file
