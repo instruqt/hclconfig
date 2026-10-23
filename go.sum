@@ -133,8 +133,8 @@ github.com/infinytum/raymond/v2 v2.0.5 h1:sdbPMfhNnNI9c5gxDPfbgoFYlwTgg4UlSjxqvY
 github.com/infinytum/raymond/v2 v2.0.5/go.mod h1:XWq3aImVLUPbCm+hFxmqjIMaBm10z+WjtxLtR0P8oVs=
 github.com/jumppad-labs/go-cty v0.0.0-20260330202817-f6441704632b h1:ps0rsqjhhWSsiJwL2uH7dCSZTj3vFd5P7LQa4ihodeE=
 github.com/jumppad-labs/go-cty v0.0.0-20260330202817-f6441704632b/go.mod h1:YKQzy/7pZ7iq2jNFzy5go57xdxdWoLLpaEp4u238AE0=
-github.com/klauspost/compress v1.18.5 h1:/h1gH5Ce+VWNLSWqPzOVn6XBO+vJbCNGvjoaGBFW2IE=
-github.com/klauspost/compress v1.18.5/go.mod h1:cwPg85FWrGar70rWktvGQj8/hthj3wpl0PGDogxkrSQ=
+github.com/klauspost/compress v1.18.7 h1:aUyZsS4kH3QTKurYhAOwAHxllVPnOthb3vPfnF1Ehjw=
+github.com/klauspost/compress v1.18.7/go.mod h1:cwPg85FWrGar70rWktvGQj8/hthj3wpl0PGDogxkrSQ=
 github.com/kr/pretty v0.3.1 h1:flRD4NNwYAUpkphVc1HcthR4KEIFJ65n8Mw5qdRn3LE=
 github.com/kr/pretty v0.3.1/go.mod h1:hoEshYVHaxMs3cyo3Yncou5ZscifuDolrwPKZanG3xk=
 github.com/kr/text v0.2.0 h1:5Nx0Ya0ZqY2ygV366QzturHI13Jq95ApcVaJBhpS+AY=
