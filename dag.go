@@ -94,9 +94,10 @@ func doYaLikeDAGs(c *Config) (*dag.AcyclicGraph, error) {
 				// "module.module1.module2.resource.container.mine.id"
 				relFQDN := fqdn.AppendParentModule(resource.Metadata().Module)
 
-				// we ignore the error here as it may be possible that the module depends on
-				// disabled resources
-				dep, _ := c.FindResource(relFQDN.String())
+				dep, err := c.FindResource(relFQDN.String())
+				if err != nil {
+					return nil, createParserError(resource, fmt.Sprintf("unable to find dependency '%s': %s", d, err))
+				}
 
 				dependencies[dep] = true
 			}
@@ -397,8 +398,8 @@ func createCallback(c *Config, wf WalkCallback) func(v dag.Vertex) (diags dag.Di
 	}
 }
 
-// withoutDependsOn returns a copy of the body without the depends_on attribute,
-// which setDependsOn reads when the file is parsed
+// withoutDependsOn returns a copy of the body without the depends_on attribute.
+// setDependsOn reads that attribute when the file is parsed.
 func withoutDependsOn(b *hclsyntax.Body) *hclsyntax.Body {
 	if _, ok := b.Attributes["depends_on"]; !ok {
 		return b

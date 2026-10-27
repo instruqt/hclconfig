@@ -138,6 +138,34 @@ func TestParseDependsOnAcceptsBareModuleReferences(t *testing.T) {
 	require.Equal(t, 2048, cont.(*structs.Container).Resources.CPU)
 }
 
+func TestParseDependsOnReturnsErrorForMissingDependency(t *testing.T) {
+	for _, form := range []string{"bare", "quoted"} {
+		t.Run(form, func(t *testing.T) {
+			absoluteFolderPath, err := filepath.Abs("./test_fixtures/deps/depends_on_missing_" + form + ".hcl")
+			require.NoError(t, err)
+
+			p := setupParser(t)
+
+			_, err = p.ParseFile(absoluteFolderPath)
+			require.ErrorContains(t, err, "unable to find dependency 'resource.network.missing'")
+		})
+	}
+}
+
+func TestParseDependsOnReturnsErrorForCycle(t *testing.T) {
+	for _, form := range []string{"bare", "quoted", "mixed"} {
+		t.Run(form, func(t *testing.T) {
+			absoluteFolderPath, err := filepath.Abs("./test_fixtures/deps/depends_on_cycle_" + form + ".hcl")
+			require.NoError(t, err)
+
+			p := setupParser(t)
+
+			_, err = p.ParseFile(absoluteFolderPath)
+			require.ErrorContains(t, err, "'resource.container.b' depends on 'resource.container.a' which creates a")
+		})
+	}
+}
+
 func TestParseFileCallsParseFunction(t *testing.T) {
 	absoluteFolderPath, err := filepath.Abs("./test_fixtures/simple/container.hcl")
 	if err != nil {
