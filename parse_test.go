@@ -5,6 +5,7 @@ import (
 	"log"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -139,15 +140,115 @@ func TestParseDependsOnAcceptsBareModuleReferences(t *testing.T) {
 }
 
 func TestParseDependsOnReturnsErrorForMissingDependency(t *testing.T) {
-	for _, form := range []string{"bare", "quoted"} {
-		t.Run(form, func(t *testing.T) {
-			absoluteFolderPath, err := filepath.Abs("./test_fixtures/deps/depends_on_missing_" + form + ".hcl")
+	tests := []struct {
+		fixture string
+		missing string
+	}{
+		{"depends_on_missing_bare.hcl", "resource.network.missing"},
+		{"depends_on_missing_quoted.hcl", "resource.network.missing"},
+		{"depends_on_missing_module_bare.hcl", "module.typo"},
+		{"depends_on_missing_module_quoted.hcl", "module.typo"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.fixture, func(t *testing.T) {
+			absoluteFolderPath, err := filepath.Abs("./test_fixtures/deps/" + tt.fixture)
 			require.NoError(t, err)
 
 			p := setupParser(t)
 
 			_, err = p.ParseFile(absoluteFolderPath)
-			require.ErrorContains(t, err, "unable to find dependency 'resource.network.missing'")
+			require.ErrorContains(t, err, "unable to find dependency '"+tt.missing+"'")
+		})
+	}
+}
+
+func TestParseDependsOnRunsDependentsAfterTargets(t *testing.T) {
+	absoluteFolderPath, err := filepath.Abs("./test_fixtures/deps/depends_on_order.hcl")
+	require.NoError(t, err)
+
+	// targets sleep, so a missing edge lets the dependent run first
+	isTarget := func(id string) bool {
+		return id == "resource.network.main" ||
+			id == "module.sibling.resource.network.first" ||
+			strings.HasPrefix(id, "module.first.")
+	}
+
+	calls := []string{}
+	callSync := sync.Mutex{}
+	o := DefaultOptions()
+	o.Callback = func(r types.Resource) error {
+		if isTarget(r.Metadata().ID) {
+			time.Sleep(50 * time.Millisecond)
+		}
+
+		callSync.Lock()
+		calls = append(calls, r.Metadata().ID)
+		callSync.Unlock()
+
+		return nil
+	}
+
+	p := setupParser(t, o)
+
+	_, err = p.ParseFile(absoluteFolderPath)
+	require.NoError(t, err)
+
+	// lastIndex returns the position of the last call that matches
+	lastIndex := func(match func(string) bool) int {
+		last := -1
+		for i, id := range calls {
+			if match(id) {
+				last = i
+			}
+		}
+		return last
+	}
+
+	// firstIndex returns the position of the first call that matches
+	firstIndex := func(match func(string) bool) int {
+		for i, id := range calls {
+			if match(id) {
+				return i
+			}
+		}
+		return -1
+	}
+
+	is := func(want string) func(string) bool {
+		return func(id string) bool { return id == want }
+	}
+
+	// variables are not in the graph, so they have no order
+	inModule := func(module string) func(string) bool {
+		return func(id string) bool {
+			return strings.HasPrefix(id, "module."+module+".") && !strings.Contains(id, ".variable.")
+		}
+	}
+
+	tests := []struct {
+		name      string
+		target    func(string) bool
+		dependent func(string) bool
+	}{
+		{"bare resource", is("resource.network.main"), is("resource.container.bare")},
+		{"quoted resource", is("resource.network.main"), is("resource.container.quoted")},
+		{"mixed resource", is("resource.network.main"), is("resource.container.mixed")},
+		{"mixed module", inModule("first"), is("resource.container.mixed")},
+		{"resource on module", inModule("first"), is("resource.container.after_module")},
+		{"bare module on module", inModule("first"), inModule("bare")},
+		{"quoted module on module", inModule("first"), inModule("quoted")},
+		{"sibling in module", is("module.sibling.resource.network.first"), is("module.sibling.resource.container.second")},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			target := lastIndex(tt.target)
+			dependent := firstIndex(tt.dependent)
+
+			require.NotEqual(t, -1, target, "target was not called: %v", calls)
+			require.NotEqual(t, -1, dependent, "dependent was not called: %v", calls)
+			require.Less(t, target, dependent, "dependent ran before its target: %v", calls)
 		})
 	}
 }

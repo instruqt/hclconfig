@@ -76,6 +76,10 @@ func doYaLikeDAGs(c *Config) (*dag.AcyclicGraph, error) {
 				// "module.module1.module2.resource.container.mine.id"
 				relFQDN := fqdn.AppendParentModule(resource.Metadata().Module)
 
+				if _, err := c.FindResource(relFQDN.String()); err != nil {
+					return nil, createParserError(resource, fmt.Sprintf("unable to find dependency '%s': %s", d, err))
+				}
+
 				// we ignore the error here as it may be possible that the module depends on
 				// disabled resources
 				deps, _ := c.FindModuleResources(relFQDN.String(), true)
