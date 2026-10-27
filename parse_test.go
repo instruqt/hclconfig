@@ -116,6 +116,28 @@ func TestParseDependsOnAcceptsStringsAndBareReferences(t *testing.T) {
 	)
 }
 
+func TestParseDependsOnAcceptsBareModuleReferences(t *testing.T) {
+	absoluteFolderPath, err := filepath.Abs("./test_fixtures/deps/depends_on_module.hcl")
+	require.NoError(t, err)
+
+	p := setupParser(t)
+
+	c, err := p.ParseFile(absoluteFolderPath)
+	require.NoError(t, err)
+
+	quoted, err := c.FindResource("module.quoted")
+	require.NoError(t, err)
+	require.Contains(t, quoted.GetDependencies(), "module.first")
+
+	bare, err := c.FindResource("module.bare")
+	require.NoError(t, err)
+	require.Contains(t, bare.GetDependencies(), "module.first")
+
+	cont, err := c.FindResource("module.bare.resource.container.consul")
+	require.NoError(t, err)
+	require.Equal(t, 2048, cont.(*structs.Container).Resources.CPU)
+}
+
 func TestParseFileCallsParseFunction(t *testing.T) {
 	absoluteFolderPath, err := filepath.Abs("./test_fixtures/simple/container.hcl")
 	if err != nil {

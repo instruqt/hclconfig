@@ -2,6 +2,7 @@ package hclconfig
 
 import (
 	"fmt"
+	"maps"
 	"reflect"
 	"regexp"
 	"slices"
@@ -11,6 +12,7 @@ import (
 	"github.com/creasty/defaults"
 	"github.com/hashicorp/hcl/v2"
 	"github.com/hashicorp/hcl/v2/gohcl"
+	"github.com/hashicorp/hcl/v2/hclsyntax"
 
 	"go.instruqt.com/hclconfig/convert"
 	"go.instruqt.com/hclconfig/errors"
@@ -254,7 +256,7 @@ func createCallback(c *Config, wf WalkCallback) func(v dag.Vertex) (diags dag.Di
 		// resources
 		decodeDiags := hcl.Diagnostics{}
 		withContextLock(ctx, func() {
-			decodeDiags = gohcl.DecodeBody(bdy, ctx, r)
+			decodeDiags = gohcl.DecodeBody(withoutDependsOn(bdy), ctx, r)
 		})
 
 		if decodeDiags.HasErrors() {
@@ -393,6 +395,20 @@ func createCallback(c *Config, wf WalkCallback) func(v dag.Vertex) (diags dag.Di
 
 		return nil
 	}
+}
+
+// withoutDependsOn returns a copy of the body without the depends_on attribute,
+// which setDependsOn reads when the file is parsed
+func withoutDependsOn(b *hclsyntax.Body) *hclsyntax.Body {
+	if _, ok := b.Attributes["depends_on"]; !ok {
+		return b
+	}
+
+	nb := *b
+	nb.Attributes = maps.Clone(b.Attributes)
+	delete(nb.Attributes, "depends_on")
+
+	return &nb
 }
 
 // setContextVariablesFromList sets the context variables from a list of resource links

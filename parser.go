@@ -1327,6 +1327,11 @@ func getDependentResources(b *hclsyntax.Block, ctx *hcl.EvalContext, c *Config, 
 	references := []string{}
 
 	for _, a := range b.Body.Attributes {
+		// depends_on holds dependencies, not values, setDependsOn reads it
+		if path == "" && a.Name == "depends_on" {
+			continue
+		}
+
 		refs, err := processExpr(a.Expr)
 		if err != nil {
 			pe := &errors.ParserError{}
