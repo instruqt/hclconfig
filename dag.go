@@ -67,6 +67,9 @@ func doYaLikeDAGs(c *Config) (*dag.AcyclicGraph, error) {
 				return nil, createParserError(resource, fmt.Sprintf("invalid dependency '%s': %s", d, err))
 			}
 
+			// a link target can be missing when it is disabled, a depends_on target cannot
+			isLink := slices.Contains(resource.Metadata().Links, d)
+
 			// when the dependency is a module, depend on all resources in the module
 			if fqdn.Type == resources.TypeModule {
 				// assume that all dependencies references have been written with no
@@ -77,6 +80,10 @@ func doYaLikeDAGs(c *Config) (*dag.AcyclicGraph, error) {
 				relFQDN := fqdn.AppendParentModule(resource.Metadata().Module)
 
 				if _, err := c.FindResource(relFQDN.String()); err != nil {
+					if isLink {
+						continue
+					}
+
 					return nil, createParserError(resource, fmt.Sprintf("unable to find dependency '%s': %s", d, err))
 				}
 
@@ -100,6 +107,10 @@ func doYaLikeDAGs(c *Config) (*dag.AcyclicGraph, error) {
 
 				dep, err := c.FindResource(relFQDN.String())
 				if err != nil {
+					if isLink {
+						continue
+					}
+
 					return nil, createParserError(resource, fmt.Sprintf("unable to find dependency '%s': %s", d, err))
 				}
 

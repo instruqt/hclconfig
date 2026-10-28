@@ -136,7 +136,7 @@ func TestParseDependsOnAcceptsBareModuleReferences(t *testing.T) {
 
 	cont, err := c.FindResource("module.bare.resource.container.consul")
 	require.NoError(t, err)
-	require.Equal(t, 2048, cont.(*structs.Container).Resources.CPU)
+	require.Equal(t, 1024, cont.(*structs.Container).Resources.CPU)
 }
 
 func TestParseDependsOnReturnsErrorForMissingDependency(t *testing.T) {
@@ -161,6 +161,24 @@ func TestParseDependsOnReturnsErrorForMissingDependency(t *testing.T) {
 			require.ErrorContains(t, err, "unable to find dependency '"+tt.missing+"'")
 		})
 	}
+}
+
+func TestWalkSkipsMissingLinkTargets(t *testing.T) {
+	absoluteFolderPath, err := filepath.Abs("./test_fixtures/disabled/disabled.hcl")
+	require.NoError(t, err)
+
+	p := setupParser(t)
+
+	c, err := p.ParseFile(absoluteFolderPath)
+	require.NoError(t, err)
+
+	// resource.container.disabled_value links to the network
+	net, err := c.FindResource("resource.network.onprem")
+	require.NoError(t, err)
+	require.NoError(t, c.RemoveResource(net))
+
+	err = c.Walk(func(r types.Resource) error { return nil }, false)
+	require.NoError(t, err)
 }
 
 func TestParseDependsOnRunsDependentsAfterTargets(t *testing.T) {

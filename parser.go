@@ -707,18 +707,6 @@ func (p *Parser) parseModule(ctx *hcl.EvalContext, c *Config, file string, b *hc
 	rt.Metadata().Line = b.TypeRange.Start.Line
 	rt.Metadata().Column = b.TypeRange.Start.Column
 
-	err := decodeBody(ctx, c, file, b, rt, false)
-	if err != nil {
-		de := &errors.ParserError{}
-		de.Line = b.TypeRange.Start.Line
-		de.Column = b.TypeRange.Start.Column
-		de.Filename = file
-		de.Level = errors.ParserErrorLevelError
-		de.Message = fmt.Sprintf("error creating resource: %s", err)
-
-		return []error{de}
-	}
-
 	derr := setDependsOn(ctx, rt, b.Body, dependsOn)
 	if derr != nil {
 		de := &errors.ParserError{}
@@ -727,6 +715,18 @@ func (p *Parser) parseModule(ctx *hcl.EvalContext, c *Config, file string, b *hc
 		de.Filename = file
 		de.Level = errors.ParserErrorLevelError
 		de.Message = derr.Error()
+
+		return []error{de}
+	}
+
+	err := decodeBody(ctx, c, file, b, rt, false)
+	if err != nil {
+		de := &errors.ParserError{}
+		de.Line = b.TypeRange.Start.Line
+		de.Column = b.TypeRange.Start.Column
+		de.Filename = file
+		de.Level = errors.ParserErrorLevelError
+		de.Message = fmt.Sprintf("error creating resource: %s", err)
 
 		return []error{de}
 	}
@@ -1018,6 +1018,19 @@ func (p *Parser) parseResource(ctx *hcl.EvalContext, c *Config, file string, b *
 	rt.Metadata().Line = b.TypeRange.Start.Line
 	rt.Metadata().Column = b.TypeRange.Start.Column
 
+	// depends on is a property of the embedded type we need to set this manually
+	err = setDependsOn(ctx, rt, b.Body, dependsOn)
+	if err != nil {
+		de := &errors.ParserError{}
+		de.Line = b.TypeRange.Start.Line
+		de.Column = b.TypeRange.Start.Column
+		de.Filename = file
+		de.Level = errors.ParserErrorLevelError
+		de.Message = fmt.Sprintf(`unable to set depends_on, %s`, err)
+
+		return de
+	}
+
 	err = decodeBody(ctx, c, file, b, rt, ignoreErrors)
 	if err != nil {
 		de := &errors.ParserError{}
@@ -1037,19 +1050,6 @@ func (p *Parser) parseResource(ctx *hcl.EvalContext, c *Config, file string, b *
 		if !diags.HasErrors() {
 			rt.(*resources.Output).Description = desc.AsString()
 		}
-	}
-
-	// depends on is a property of the embedded type we need to set this manually
-	err = setDependsOn(ctx, rt, b.Body, dependsOn)
-	if err != nil {
-		de := &errors.ParserError{}
-		de.Line = b.TypeRange.Start.Line
-		de.Column = b.TypeRange.Start.Column
-		de.Filename = file
-		de.Level = errors.ParserErrorLevelError
-		de.Message = fmt.Sprintf(`unable to set depends_on, %s`, err)
-
-		return de
 	}
 
 	err = c.addResource(rt, ctx, b.Body)
@@ -1388,20 +1388,8 @@ func getDependentResources(b *hclsyntax.Block, ctx *hcl.EvalContext, c *Config, 
 
 	// depends_on is not a reference, but it can still close a cycle
 	checked := references
-	if attr, ok := b.Body.Attributes["depends_on"]; ok && path == "" {
-		deps, err := dependsOnReferences(ctx, attr.Expr)
-		if err != nil {
-			pe := &errors.ParserError{}
-			pe.Column = b.Body.SrcRange.Start.Column
-			pe.Line = b.Body.SrcRange.Start.Line
-			pe.Filename = b.Body.SrcRange.Filename
-			pe.Message = err.Error()
-			pe.Level = errors.ParserErrorLevelError
-
-			return nil, pe
-		}
-
-		checked = append(slices.Clone(references), deps...)
+	if path == "" {
+		checked = append(slices.Clone(references), me.GetDependencies()...)
 	}
 
 	// we have the references, now check that the references

@@ -1,5 +1,9 @@
 module "first" {
   source = "../single"
+
+  variables = {
+    cpu_resources = 1024
+  }
 }
 
 module "quoted" {
