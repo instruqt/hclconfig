@@ -2,6 +2,7 @@ package hclconfig
 
 import (
 	"fmt"
+	"maps"
 	"reflect"
 	"regexp"
 	"slices"
@@ -11,6 +12,7 @@ import (
 	"github.com/creasty/defaults"
 	"github.com/hashicorp/hcl/v2"
 	"github.com/hashicorp/hcl/v2/gohcl"
+	"github.com/hashicorp/hcl/v2/hclsyntax"
 
 	"go.instruqt.com/hclconfig/convert"
 	"go.instruqt.com/hclconfig/errors"
@@ -65,6 +67,9 @@ func doYaLikeDAGs(c *Config) (*dag.AcyclicGraph, error) {
 				return nil, createParserError(resource, fmt.Sprintf("invalid dependency '%s': %s", d, err))
 			}
 
+			// a link target can be missing when it is disabled, a depends_on target cannot
+			isLink := slices.Contains(resource.Metadata().Links, d)
+
 			// when the dependency is a module, depend on all resources in the module
 			if fqdn.Type == resources.TypeModule {
 				// assume that all dependencies references have been written with no
@@ -73,6 +78,14 @@ func doYaLikeDAGs(c *Config) (*dag.AcyclicGraph, error) {
 				// then the reference should be modified to include the parent reference
 				// "module.module1.module2.resource.container.mine.id"
 				relFQDN := fqdn.AppendParentModule(resource.Metadata().Module)
+
+				if _, err := c.FindResource(relFQDN.String()); err != nil {
+					if isLink {
+						continue
+					}
+
+					return nil, createParserError(resource, fmt.Sprintf("unable to find dependency '%s': %s", d, err))
+				}
 
 				// we ignore the error here as it may be possible that the module depends on
 				// disabled resources
@@ -92,9 +105,14 @@ func doYaLikeDAGs(c *Config) (*dag.AcyclicGraph, error) {
 				// "module.module1.module2.resource.container.mine.id"
 				relFQDN := fqdn.AppendParentModule(resource.Metadata().Module)
 
-				// we ignore the error here as it may be possible that the module depends on
-				// disabled resources
-				dep, _ := c.FindResource(relFQDN.String())
+				dep, err := c.FindResource(relFQDN.String())
+				if err != nil {
+					if isLink {
+						continue
+					}
+
+					return nil, createParserError(resource, fmt.Sprintf("unable to find dependency '%s': %s", d, err))
+				}
 
 				dependencies[dep] = true
 			}
@@ -254,7 +272,7 @@ func createCallback(c *Config, wf WalkCallback) func(v dag.Vertex) (diags dag.Di
 		// resources
 		decodeDiags := hcl.Diagnostics{}
 		withContextLock(ctx, func() {
-			decodeDiags = gohcl.DecodeBody(bdy, ctx, r)
+			decodeDiags = gohcl.DecodeBody(withoutDependsOn(bdy), ctx, r)
 		})
 
 		if decodeDiags.HasErrors() {
@@ -393,6 +411,20 @@ func createCallback(c *Config, wf WalkCallback) func(v dag.Vertex) (diags dag.Di
 
 		return nil
 	}
+}
+
+// withoutDependsOn returns a copy of the body without the depends_on attribute.
+// setDependsOn reads that attribute when the file is parsed.
+func withoutDependsOn(b *hclsyntax.Body) *hclsyntax.Body {
+	if _, ok := b.Attributes["depends_on"]; !ok {
+		return b
+	}
+
+	nb := *b
+	nb.Attributes = maps.Clone(b.Attributes)
+	delete(nb.Attributes, "depends_on")
+
+	return &nb
 }
 
 // setContextVariablesFromList sets the context variables from a list of resource links

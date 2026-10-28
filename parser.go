@@ -601,31 +601,48 @@ func setDependsOn(ctx *hcl.EvalContext, r types.Resource, b *hclsyntax.Body, dep
 	}
 
 	if attr, ok := b.Attributes["depends_on"]; ok {
-		// depends_on accepts both quoted strings ("resource.type.name") and
-		// bare references (resource.type.name). Iterate the list elements
-		// rather than evaluating the whole expression so bare references are
-		// read structurally, not resolved against a context where the target
-		// resource is not yet present.
-		elems, diags := hcl.ExprList(attr.Expr)
-		if diags.HasErrors() {
-			return fmt.Errorf("unable to read depends_on attribute: %s", diags.Error())
+		deps, err := dependsOnReferences(ctx, attr.Expr)
+		if err != nil {
+			return err
 		}
 
-		for _, elem := range elems {
-			dep, err := dependsOnReference(ctx, elem)
-			if err != nil {
-				return err
-			}
-
-			if _, err := resources.ParseFQRN(dep); err != nil {
-				return fmt.Errorf("invalid dependency %s, %s", dep, err)
-			}
-
+		for _, dep := range deps {
 			r.AddDependency(dep)
 		}
 	}
 
 	return nil
+}
+
+// dependsOnReferences resolves the elements of a depends_on list to fully
+// qualified resource names.
+//
+// depends_on accepts both quoted strings ("resource.type.name") and
+// bare references (resource.type.name). Iterate the list elements
+// rather than evaluating the whole expression so bare references are
+// read structurally, not resolved against a context where the target
+// resource is not yet present.
+func dependsOnReferences(ctx *hcl.EvalContext, expr hcl.Expression) ([]string, error) {
+	elems, diags := hcl.ExprList(expr)
+	if diags.HasErrors() {
+		return nil, fmt.Errorf("unable to read depends_on attribute: %s", diags.Error())
+	}
+
+	deps := []string{}
+	for _, elem := range elems {
+		dep, err := dependsOnReference(ctx, elem)
+		if err != nil {
+			return nil, err
+		}
+
+		if _, err := resources.ParseFQRN(dep); err != nil {
+			return nil, fmt.Errorf("invalid dependency %s, %s", dep, err)
+		}
+
+		deps = append(deps, dep)
+	}
+
+	return deps, nil
 }
 
 // dependsOnReference resolves a single depends_on list element to its fully
@@ -690,18 +707,6 @@ func (p *Parser) parseModule(ctx *hcl.EvalContext, c *Config, file string, b *hc
 	rt.Metadata().Line = b.TypeRange.Start.Line
 	rt.Metadata().Column = b.TypeRange.Start.Column
 
-	err := decodeBody(ctx, c, file, b, rt, false)
-	if err != nil {
-		de := &errors.ParserError{}
-		de.Line = b.TypeRange.Start.Line
-		de.Column = b.TypeRange.Start.Column
-		de.Filename = file
-		de.Level = errors.ParserErrorLevelError
-		de.Message = fmt.Sprintf("error creating resource: %s", err)
-
-		return []error{de}
-	}
-
 	derr := setDependsOn(ctx, rt, b.Body, dependsOn)
 	if derr != nil {
 		de := &errors.ParserError{}
@@ -710,6 +715,18 @@ func (p *Parser) parseModule(ctx *hcl.EvalContext, c *Config, file string, b *hc
 		de.Filename = file
 		de.Level = errors.ParserErrorLevelError
 		de.Message = derr.Error()
+
+		return []error{de}
+	}
+
+	err := decodeBody(ctx, c, file, b, rt, false)
+	if err != nil {
+		de := &errors.ParserError{}
+		de.Line = b.TypeRange.Start.Line
+		de.Column = b.TypeRange.Start.Column
+		de.Filename = file
+		de.Level = errors.ParserErrorLevelError
+		de.Message = fmt.Sprintf("error creating resource: %s", err)
 
 		return []error{de}
 	}
@@ -1001,6 +1018,19 @@ func (p *Parser) parseResource(ctx *hcl.EvalContext, c *Config, file string, b *
 	rt.Metadata().Line = b.TypeRange.Start.Line
 	rt.Metadata().Column = b.TypeRange.Start.Column
 
+	// depends on is a property of the embedded type we need to set this manually
+	err = setDependsOn(ctx, rt, b.Body, dependsOn)
+	if err != nil {
+		de := &errors.ParserError{}
+		de.Line = b.TypeRange.Start.Line
+		de.Column = b.TypeRange.Start.Column
+		de.Filename = file
+		de.Level = errors.ParserErrorLevelError
+		de.Message = fmt.Sprintf(`unable to set depends_on, %s`, err)
+
+		return de
+	}
+
 	err = decodeBody(ctx, c, file, b, rt, ignoreErrors)
 	if err != nil {
 		de := &errors.ParserError{}
@@ -1020,19 +1050,6 @@ func (p *Parser) parseResource(ctx *hcl.EvalContext, c *Config, file string, b *
 		if !diags.HasErrors() {
 			rt.(*resources.Output).Description = desc.AsString()
 		}
-	}
-
-	// depends on is a property of the embedded type we need to set this manually
-	err = setDependsOn(ctx, rt, b.Body, dependsOn)
-	if err != nil {
-		de := &errors.ParserError{}
-		de.Line = b.TypeRange.Start.Line
-		de.Column = b.TypeRange.Start.Column
-		de.Filename = file
-		de.Level = errors.ParserErrorLevelError
-		de.Message = fmt.Sprintf(`unable to set depends_on, %s`, err)
-
-		return de
 	}
 
 	err = c.addResource(rt, ctx, b.Body)
@@ -1327,6 +1344,11 @@ func getDependentResources(b *hclsyntax.Block, ctx *hcl.EvalContext, c *Config, 
 	references := []string{}
 
 	for _, a := range b.Body.Attributes {
+		// depends_on holds dependencies, not values. setDependsOn reads it.
+		if path == "" && a.Name == "depends_on" {
+			continue
+		}
+
 		refs, err := processExpr(a.Expr)
 		if err != nil {
 			pe := &errors.ParserError{}
@@ -1364,16 +1386,22 @@ func getDependentResources(b *hclsyntax.Block, ctx *hcl.EvalContext, c *Config, 
 
 	me := resource.(types.Resource)
 
+	// depends_on is not a reference, but it can still close a cycle
+	checked := references
+	if path == "" {
+		checked = append(slices.Clone(references), me.GetDependencies()...)
+	}
+
 	// we have the references, now check that the references
 	// are not cyclical
-	for _, dep := range references {
+	for _, dep := range checked {
 		// the references might not exist yet, we are parsing flat
 		// but if there is a cyclical reference, one end of the circle will be found
 		d, err := c.FindResource(dep)
 		//fqdnD := resources.FQDNFromResource(me)
 		if err == nil {
 			// check the deps on the linked resource
-			for _, cdep := range d.Metadata().Links {
+			for _, cdep := range append(slices.Clone(d.Metadata().Links), d.GetDependencies()...) {
 
 				fqrn, err := resources.ParseFQRN(cdep)
 				fqrn.Attribute = ""
