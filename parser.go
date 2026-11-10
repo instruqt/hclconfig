@@ -1405,13 +1405,10 @@ func getDependentResources(b *hclsyntax.Block, ctx *hcl.EvalContext, c *Config, 
 
 				fqrn, err := resources.ParseFQRN(cdep)
 				if err != nil {
-					pe := &errors.ParserError{}
-					pe.Column = b.Body.SrcRange.Start.Column
-					pe.Line = b.Body.SrcRange.Start.Line
-					pe.Filename = b.Body.SrcRange.Filename
-					pe.Message = fmt.Sprintf("dependency %s, is not a valid resource", cdep)
-					pe.Level = errors.ParserErrorLevelError
-					return nil, pe
+					// The broken link is in the linked resource, not in this
+					// one. Building the DAG reports it with that resource's
+					// file and line.
+					continue
 				}
 
 				fqrn.Attribute = ""

@@ -285,9 +285,9 @@ func TestParseDependsOnReturnsErrorForCycle(t *testing.T) {
 	}
 }
 
-// A reference that indexes a resource type, resource.network["on-prem"], is
-// not a resource name. Resolving a resource that links to one must return a
-// parser error rather than panic.
+// container b references container a after a is parsed, so the cycle check
+// for b reads a's links, including one ParseFQRN cannot read. The error must
+// point at a, where the link is written.
 func TestParseReturnsErrorForIndexedResourceReference(t *testing.T) {
 	absoluteFolderPath, err := filepath.Abs("./test_fixtures/deps/index_reference.hcl")
 	require.NoError(t, err)
@@ -295,7 +295,8 @@ func TestParseReturnsErrorForIndexedResourceReference(t *testing.T) {
 	p := setupParser(t)
 
 	_, err = p.ParseFile(absoluteFolderPath)
-	require.ErrorContains(t, err, `dependency resource.network["on-prem"], is not a valid resource`)
+	require.ErrorContains(t, err, `invalid dependency 'resource.network["on-prem"]'`)
+	require.ErrorContains(t, err, "index_reference.hcl:5,")
 }
 
 func TestParseFileCallsParseFunction(t *testing.T) {
