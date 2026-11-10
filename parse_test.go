@@ -285,6 +285,20 @@ func TestParseDependsOnReturnsErrorForCycle(t *testing.T) {
 	}
 }
 
+// container b references container a after a is parsed, so the cycle check
+// for b reads a's links, including one ParseFQRN cannot read. The error must
+// point at a, where the link is written.
+func TestParseReturnsErrorForIndexedResourceReference(t *testing.T) {
+	absoluteFolderPath, err := filepath.Abs("./test_fixtures/deps/index_reference.hcl")
+	require.NoError(t, err)
+
+	p := setupParser(t)
+
+	_, err = p.ParseFile(absoluteFolderPath)
+	require.ErrorContains(t, err, `invalid dependency 'resource.network["on-prem"]'`)
+	require.ErrorContains(t, err, "index_reference.hcl:5,")
+}
+
 func TestParseFileCallsParseFunction(t *testing.T) {
 	absoluteFolderPath, err := filepath.Abs("./test_fixtures/simple/container.hcl")
 	if err != nil {
