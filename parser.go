@@ -1404,13 +1404,6 @@ func getDependentResources(b *hclsyntax.Block, ctx *hcl.EvalContext, c *Config, 
 			for _, cdep := range append(slices.Clone(d.Metadata().Links), d.GetDependencies()...) {
 
 				fqrn, err := resources.ParseFQRN(cdep)
-				fqrn.Attribute = ""
-
-				// append the parent module to the link as they are relative
-				if d.Metadata().Module != "" {
-					fqrn.Module = d.Metadata().Module
-				}
-
 				if err != nil {
 					pe := &errors.ParserError{}
 					pe.Column = b.Body.SrcRange.Start.Column
@@ -1419,6 +1412,13 @@ func getDependentResources(b *hclsyntax.Block, ctx *hcl.EvalContext, c *Config, 
 					pe.Message = fmt.Sprintf("dependency %s, is not a valid resource", cdep)
 					pe.Level = errors.ParserErrorLevelError
 					return nil, pe
+				}
+
+				fqrn.Attribute = ""
+
+				// append the parent module to the link as they are relative
+				if d.Metadata().Module != "" {
+					fqrn.Module = d.Metadata().Module
 				}
 
 				if me.Metadata().Name == fqrn.Resource &&
